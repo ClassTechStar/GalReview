@@ -2,6 +2,8 @@ name: CI
 
 # 千知万理 GalReview — 核心闭环 CI
 # 覆盖：
+#   - secret 扫描（gitleaks，全历史）
+#   - 路径过滤（changes job）：仅相关目录变更时触发对应服务 job
 #   - 端口策略门禁
 #   - .NET：Auth/User/File/GalGame/Knowledge 构建或测试 + Practice/Credit 测试 + Model 单元测试
 #   - Gateway：build + test
@@ -10,6 +12,7 @@ name: CI
 # 触发：main 分支推送 + 指向 main 的 PR
 # 说明：ModelService Integration 测试依赖真实 ONNX 资产（~500MB，OSCA/下载器），
 #       CI 只跑不依赖资产的 Domain/Persistence 单元测试；资产门禁由部署脚本负责。
+#       该排除为已评审决策：待 ONNX 资产 hash 门禁就绪后再评估启用。
 
 on:
   push:
@@ -31,6 +34,63 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 与 .gitleaksignore 指纹分诊时使用的版本保持一致
+          GITLEAKS_VERSION: 8.30.1
+
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.filter.outputs.core }}
+      platform: ${{ steps.filter.outputs.platform }}
+      gateway: ${{ steps.filter.outputs.gateway }}
+      render: ${{ steps.filter.outputs.render }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check path filters
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            core:
+              - 'backend/PracticeService/**'
+              - 'backend/CreditService/**'
+              - 'backend/ModelService/**'
+              - 'docs/contract.md'
+              - '.github/workflows/ci.yml'
+            platform:
+              - 'backend/AuthService/**'
+              - 'backend/UserService/**'
+              - 'backend/FileService/**'
+              - 'backend/GalGameService/**'
+              - 'backend/KnowledgeService/**'
+              - '.github/workflows/ci.yml'
+            gateway:
+              - 'gateway/**'
+              - '.github/workflows/ci.yml'
+            render:
+              - 'backend/RenderService/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yml'
+
   integration-smoke:
     name: Compose integration smoke
     if: github.event_name == 'workflow_dispatch' && inputs.integration_smoke
@@ -70,6 +130,8 @@ jobs:
 
   dotnet-core:
     name: .NET core loop (Practice/Credit/Model)
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -95,6 +157,8 @@ jobs:
 
   dotnet-platform:
     name: .NET platform services
+    needs: changes
+    if: needs.changes.outputs.platform == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -125,6 +189,8 @@ jobs:
 
   gateway:
     name: Gateway (Node)
+    needs: changes
+    if: needs.changes.outputs.gateway == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -151,6 +217,8 @@ jobs:
 
   render-service:
     name: RenderService (Node)
+    needs: changes
+    if: needs.changes.outputs.render == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -177,6 +245,8 @@ jobs:
 
   frontend:
     name: Frontend (Vite)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
