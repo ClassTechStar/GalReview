@@ -1877,3 +1877,54 @@ CI 后续仅拦截新增指纹。
 
 - OCRService 仍 0 测试（P2/T12）。
 - ModelService Integration 测试维持排除（评审决策，见 ci.yml 头注）。
+
+## 44. 2026-09-30 P1 可靠性与瘦身验证（T4–T8）
+
+### T4 后台任务重试/死信
+- FileService：`IngestionWorker` 失败按指数退避重试（`Ingestion:MaxAttempts` 默认 3、
+  `Ingestion:RetryBaseDelaySeconds` 默认 5s×2^n），`IngestionJob.AttemptCount` 落库；
+  超限保持 FAILED（死信，可经任务查询检索）；启动恢复从 ApplicationStarted 上的
+  fire-and-forget 收编进 Worker；删除路径 OCR 取消改 3s 限时 await（消灭 2 处 Task.Run）。
+- GalGameService：QUEUED→RUNNING 记录 `AttemptCount`；入队失败内联退避重试 3 次；
+  **启动恢复修复 credits 泄漏**——恢复置 FAILED 的作业现在逐一 `ReleaseAsync` 释放 HELD
+  预授权（`RecoverStaleJobs` 返回 `GameStaleJobRecovery(FailedCount, FailedJobIds)`）。
+- 生成类任务不加速率级自动重试（内部已有 provider/draft 重试；队列级重试会二次扣费）。
+
+### T5 推理背压
+- `Nli:MaxPendingBatches`（默认 64）有界排队，超限抛 `InferenceOverloadedException`
+  → 503 + `Retry-After`（错误码 `MODEL_SERVICE_BUSY`）；`/readyz` 新增 `queuedBatches`。
+- Practice 消费侧回归：非 200（含 503）→ ABSTAINED 路径，PracticeService 68 用例全绿。
+
+### T6 前端瘦身
+- manualChunks：@antv → knowledge-graph 独立 chunk（1392K→1380K，主包不变可缓存）。
+- 资产：bg/bg_1/bg2/bg3/bg4 PNG→WebP 合计 9.07MB→668KB（82–228KB/张）；bgm.mp3
+  96kbps 单声道 8.6MB→4.3MB；原 PNG 引用清零后删除。
+- 结构：api.ts 869→39 行薄门面（+8 域文件）；global.css 3358→6 文件（@import 保序，
+  构建产物选择器偏移单调递增）；ReviewPage 884→310 行（useGameRuntime/useAudioStage/
+  useStoryProgress + 3 展示组件）；credits 购买 URL 兜底移除（无配置即隐藏入口）。
+
+### T7 原生部署与文档
+- 核实 deploy-windows.ps1 为原生 Windows 部署（不使用 compose）；接入
+  `GALREVIEW_ADMIN_PRINCIPAL_ID`：初始化自动生成 GUID、`Assert-ProductionSettings` 必填、
+  AuthService/CreditService 进程环境注入——**消除 T2 fail-fast 对原生路径的回归**。
+- docs/windows-production.md 增加原生 vs compose 生产路径对照表；脚本拆模块延后（无部署
+  靶机可验证，转 P2）。
+
+### T8 双端治理
+- desktop：打包版必须显式 `GALREVIEW_GATEWAY_URL`（缺失弹窗退出）；开发态默认保留。
+- mobile：`cleartext:false`、`allowNavigation:[]`、`allowMixedContent:false`。
+- docs/desktop-release.md：签名材料生命周期（自签→CA、轮换、吊销、不入库）。
+- CI：新增 desktop（windows-latest，electron-builder --dir 未签名冒烟，前置 frontend
+  构建）与 mobile（temurin 17 + cap sync + gradlew assembleDebug）job，均带路径过滤。
+
+### 测试证据（本机）
+
+| 套件 | 结果 |
+|---|---|
+| FileService | 18/18 |
+| GalGameService | 362/362（含恢复签名变更后的 3 处断言更新） |
+| ModelService（单元，排除 Integration） | 4/4；ModelService.API 显式编译通过 |
+| PracticeService（T5 消费侧回归） | 68/68 |
+| Frontend vitest / typecheck / build | 11/11；0 错误；构建成功 |
+| desktop main.js `node --check`；ci.yml YAML 解析 | 通过；11 个 job |
+| deploy-windows.ps1 PowerShell AST 解析 | 通过 |

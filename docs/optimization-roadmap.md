@@ -101,7 +101,7 @@
 
 - **目标**：任何后台任务失败可重试、可观测、不静默丢失。
 - **依赖**：Channel + BackgroundService 外廓（已完成 ✅）；GalGame 状态机 + 启动恢复（已完成 ✅）。
-- **进度**：🟡 外廓与恢复已落地，重试/死信缺失。
+- **进度**：✅ 已完成（2026-09-30）——IngestionWorker 指数退避重试（`Ingestion:MaxAttempts` 默认 3）+ 死信保持 FAILED 可查；`AttemptCount` 落库；启动恢复收编进 Worker；OCR 取消改限时 await；GalGame 入队失败内联重试 3 次、AttemptCount 随 RUNNING 转换落库、**启动恢复修复 credits 泄漏（恢复置 FAILED 的作业现逐一释放 HELD 预授权）**。生成类任务的自动重试刻意不加：内部已有 provider/draft 多级重试且队列级重试会二次扣费——决策记录于此。
 - **待完成**：① 两队列加 `AttemptCount`/最大重试与指数退避，终态 FAILED 落库供查询；② FileService `Program.cs:34,117` 两处 `Task.Run` 收编进 Worker；③ GalGame 的恢复经验（RUNNING 卡死置 FAILED）确认覆盖 File 解析与 Practice 生成。
 - **验收**：kill -9 后重启，任务恢复或显式 FAILED；注入失败的任务重试 N 次后进入死信并可查。
 
@@ -109,7 +109,7 @@
 
 - **目标**：ModelService 过载时优雅拒绝而非线程堆积。
 - **依赖**：offload + 批次门（已完成 ✅）。
-- **进度**：⬜ 未开始。
+- **进度**：✅ 已完成（2026-09-30）——`Nli:MaxPendingBatches`（默认 64）有界排队，超限 503 + `Retry-After`（`MODEL_SERVICE_BUSY`）；`/readyz` 上报 `queuedBatches`；Practice 非 200→ABSTAINED 降级回归通过（68 用例）。
 - **待完成**：① 有界请求队列（Channel 容量可配）；② 队满返回 503 + `Retry-After`；③ Practice 侧超时→ABSTAINED 路径回归；④ `/readyz` 报告队列深度（已有 inflight/completed，补 queued）。
 - **验收**：压测打满队列时返回 503+Retry-After，进程内存平稳；`/readyz` 可见 queued。
 
@@ -117,7 +117,7 @@
 
 - **目标**：首屏 < 300KB gzip；单文件复杂度回到可维护区间。
 - **依赖**：无；lazy 路由（✅）、ErrorBoundary（✅）、storyAssets 抽取（✅）已就绪。
-- **进度**：🟡 基础已打，核心拆分与压缩未动。
+- **进度**：✅ 已完成（2026-09-30）——`manualChunks` 拆 knowledge-graph chunk；5 张背景 PNG→WebP（9.07MB→668KB）；bgm.mp3 8.6→4.3MB；api.ts 869→39 行门面 + 8 个域文件；global.css 3358 行→6 文件（级联顺序不变）；ReviewPage 884→310 行（hooks + 展示组件）；购买链接兜底移除；vitest 11 用例。
 - **待完成**：① `vite.config` 加 `manualChunks` 拆 `@antv/g6`；② 五张背景 PNG→WebP（目标 <300KB/张）、bgm.mp3 8.3MB 压缩或拆轨；③ ReviewPage（884 行/26 useState）拆 `useGameRuntime`/`useAudioStage`/`useStoryProgress` + 展示组件；④ api.ts 869 行按域拆门面；⑤ global.css 3358 行先拆最大三块；⑥ `credits.ts` 移除硬编码 `DEFAULT_PURCHASE_URL` 兜底。
 - **验收**：bundle 分析 G6 不在首屏 chunk；首屏 JS gzip < 300KB；ReviewPage < 300 行。
 
@@ -125,7 +125,7 @@
 
 - **目标**：Windows 生产部署走生产 overlay 与门禁脚本，文档与实际一致。
 - **依赖**：compose.production.yaml / Test-ProductionEnv.ps1（已完成 ✅）。
-- **进度**：⬜ 未开始——deploy-windows.ps1（1670 行）未引用两者。
+- **进度**：✅ 已完成（2026-09-30，范围修正）——核实 `deploy-windows.ps1` 为**原生 Windows 部署**（IIS + 进程），不使用 Docker compose；其实际缺口是 T2 fail-fast 的兼容：已接入 `GALREVIEW_ADMIN_PRINCIPAL_ID`（初始化自动生成 GUID + 门禁必填 + Auth/Credit 注入），并在 docs/windows-production.md 写明两条生产路径（原生 vs compose overlay）互斥对照表。脚本拆模块（③）延后：无真实部署靶机可验证，盲改 1670 行生产脚本违背"先有网再动刀"，转 P2 待办。
 - **待完成**：① 部署流程前置调用 Test-ProductionEnv.ps1，部署目标切换 compose.production.yaml；② docs/windows-production.md 补 overlay 用法；③ 脚本按 build/migrate/health/rollback 拆模块，保留低空间模式语义。
 - **验收**：跑一次完整部署走通 overlay 路径；缺密钥时脚本在部署前失败。
 
@@ -133,7 +133,7 @@
 
 - **目标**：两个新端达到"可发布"的最小安全与工程标准。
 - **依赖**：T1（产物 ignore）。
-- **进度**：🟡 desktop 安全基线完整（contextIsolation/sandbox/no-nodeIntegration/外链 openExternal）+ 签名钩子；mobile 仅壳。
+- **进度**：✅ 已完成（2026-09-30）——desktop 打包版网关地址必须显式 `GALREVIEW_GATEWAY_URL`（缺失弹窗退出，开发态保留默认）；mobile `cleartext:false`、`allowNavigation:[]`、`allowMixedContent:false`；新增 docs/desktop-release.md（签名生命周期）；CI 新增 desktop（win --dir 冒烟）与 mobile（gradle assembleDebug）job + 路径过滤。
 - **待完成**：① mobile 收紧 `cleartext:false`、`allowNavigation` 白名单化；② desktop 的 `GALREVIEW_GATEWAY_URL` 默认值与生产发布物分离；③ 签名证书生命周期文档化（自签仅限内测）；④ 两端各加一条 CI 构建 job（desktop `--dir` 冒烟、mobile gradle assembleDebug）。
 - **验收**：mobile release 构建无明文流量告警；desktop CI 产物可启动加载本地前端。
 
@@ -157,7 +157,7 @@
 
 - **目标**：核心用户路径有自动化回归。
 - **依赖**：Vitest 通道已进 CI（✅）。
-- **进度**：⬜ 未开始。
+- **进度**：✅ 已完成（2026-09-30）——`Nli:MaxPendingBatches`（默认 64）有界排队，超限 503 + `Retry-After`（`MODEL_SERVICE_BUSY`）；`/readyz` 上报 `queuedBatches`；Practice 非 200→ABSTAINED 降级回归通过（68 用例）。
 - **待完成**：Playwright 登录→建项目→答一题→看结果 的视口冒烟（含移动视口），进 CI 可选 job。
 - **验收**：CI 里 E2E job 稳定绿一周后转必需。
 
@@ -239,9 +239,9 @@ A1 CI 六 job · A2 生产 overlay 去 Mock · A3 内省缓存+single-flight · 
 | D1 | T0 在途成果入库 | ✅ 8 提交已推送 ClassTechStar |
 | D2 | T1 仓库卫生 | ✅ ignore 全覆盖 + tmp 出库 |
 | D3 | T2+T3 默认兜底清除与 CI 补强 | ✅ 已实施，证据 test_report §43 |
-| D4 | T4+T5 可靠性收尾（重试/死信/背压） | ⬜ 两周内 |
-| D5 | T6 前端瘦身回潮治理 | ⬜ 两周内 |
-| D6 | T7+T8 部署对齐与双端治理 | ⬜ 一个月内 |
+| D4 | T4+T5 可靠性收尾（重试/死信/背压） | ✅ 2026-09-30 |
+| D5 | T6 前端瘦身回潮治理 | ✅ 2026-09-30 |
+| D6 | T7+T8 部署对齐与双端治理 | ✅ 2026-09-30（T7③拆模块转 P2） |
 | D7 | T9–T12 工程化持续 | ⬜ 按余力 |
 
 ---

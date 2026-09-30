@@ -4,11 +4,11 @@
   "webDir": "../frontend/dist",
   "server": {
     "androidScheme": "https",
-    "cleartext": true,
-    "allowNavigation": ["*"]
+    "cleartext": false,
+    "allowNavigation": []
   },
   "android": {
-    "allowMixedContent": true,
+    "allowMixedContent": false,
     "backgroundColor": "#eef8fd"
   },
   "plugins": {

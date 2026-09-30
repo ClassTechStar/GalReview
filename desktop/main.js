@@ -3,8 +3,11 @@ const path = require('path')
 const fs = require('fs')
 const http = require('http')
 
-// 后端网关：优先环境变量，其次本机集成栈默认端口
-const GATEWAY_URL = process.env.GALREVIEW_GATEWAY_URL || 'http://127.0.0.1:5000'
+// 后端网关：优先环境变量 GALREVIEW_GATEWAY_URL。
+// 打包发布物必须显式配置，避免静默把 API 指向用户本机的开发端口；
+// 开发态（electron .）保留本机集成栈默认端口。
+const configuredGatewayUrl = process.env.GALREVIEW_GATEWAY_URL?.trim()
+const GATEWAY_URL = configuredGatewayUrl || (app.isPackaged ? null : 'http://127.0.0.1:5000')
 const WEB_DIR = path.join(process.resourcesPath || __dirname, 'web')
 const LOCAL_WEB = fs.existsSync(path.join(WEB_DIR, 'index.html'))
   ? WEB_DIR
@@ -199,6 +202,14 @@ if (!gotLock) {
   })
 
   app.whenReady().then(() => {
+    if (!GATEWAY_URL) {
+      dialog.showErrorBox(
+        '缺少网关配置',
+        '未配置后端网关地址。请设置环境变量 GALREVIEW_GATEWAY_URL（例如 https://galreview.example.com）后重新启动。',
+      )
+      app.quit()
+      return
+    }
     createMenu()
     createWindow()
     app.on('activate', () => {

@@ -59,6 +59,8 @@ jobs:
       gateway: ${{ steps.filter.outputs.gateway }}
       render: ${{ steps.filter.outputs.render }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      desktop: ${{ steps.filter.outputs.desktop }}
+      mobile: ${{ steps.filter.outputs.mobile }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -89,6 +91,12 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+              - '.github/workflows/ci.yml'
+            desktop:
+              - 'desktop/**'
+              - '.github/workflows/ci.yml'
+            mobile:
+              - 'mobile/**'
               - '.github/workflows/ci.yml'
 
   integration-smoke:
@@ -273,3 +281,68 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  desktop:
+    name: Desktop (Electron)
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Build frontend assets (extraResources dependency)
+        run: npm ci && npm run build
+        working-directory: frontend
+
+      - name: Install desktop dependencies
+        run: npm ci
+        working-directory: desktop
+
+      - name: Build unpacked app (smoke, unsigned)
+        working-directory: desktop
+        env:
+          # 未配置签名材料时 sign.js 自行跳过
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --win --dir
+
+  mobile:
+    name: Mobile (Capacitor Android)
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        run: npm ci
+        working-directory: mobile
+
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+        working-directory: mobile
+
+      - name: Build debug APK
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+        working-directory: mobile/android
