@@ -89,7 +89,18 @@ public sealed class CreditHandlers(ICreditRepository repository) :
         if (request.ActualTokenUnits < 0 || request.ActualTokenUnits > 10_000_000_000) throw new CreditDomainException(400, "VALIDATION_ERROR", "actualTokenUnits 超出允许范围。");
         return Task.FromResult(View(repository.Settle(request.OperationId, request.ActualTokenUnits)));
     }
-    public Task<ReservationView> Handle(ReleaseCreditsCommand request, CancellationToken ct) => Task.FromResult(View(repository.Release(request.OperationId)));
+    public Task<ReservationView> Handle(ReleaseCreditsCommand request, CancellationToken ct)
+    {
+        try
+        {
+            return Task.FromResult(View(repository.Release(request.OperationId)));
+        }
+        catch
+        {
+            CreditServiceMetrics.RecordReleaseFailure();
+            throw;
+        }
+    }
     private static string NormalizeCode(string value) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > 48 ? throw new CreditDomainException(400, "VALIDATION_ERROR", "兑换码格式不正确。") : value.Trim().ToUpperInvariant();
     private static CreditDomainException NotFound() => new(404, "RESOURCE_NOT_FOUND", "资源不存在。");
     private static RedemptionCodeView View(RedemptionCode x) => new(x.CodeId, x.Code, CreditPolicy.ToCredits(x.CreditUnits), x.Status.ToString().ToUpperInvariant(), x.RedeemedBy, x.RedeemedAt, x.ExpiresAt, x.CreatedAt);

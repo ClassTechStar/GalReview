@@ -7,8 +7,7 @@ using ModelService.Persistence;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole();
+builder.Logging.AddJsonStructuredLogging();
 builder.Services.Configure<Microsoft.AspNetCore.Routing.RouteHandlerOptions>(options =>
     options.ThrowOnBadRequest = true);
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -26,6 +25,7 @@ if (builder.Environment.IsProduction() && string.Equals(gatewayKey, "moonstone-l
     throw new InvalidOperationException("Gateway:ServiceKey must be changed from the development default in production.");
 
 var app = builder.Build();
+app.UseRequestLogging("ModelService");
 app.UseExceptionHandler(handler => handler.Run(async context =>
 {
     var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;

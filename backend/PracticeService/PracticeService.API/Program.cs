@@ -8,7 +8,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Features;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Logging.ClearProviders(); builder.Logging.AddConsole();
+builder.Logging.AddJsonStructuredLogging();
 builder.Services.Configure<Microsoft.AspNetCore.Routing.RouteHandlerOptions>(x => x.ThrowOnBadRequest = true);
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -24,6 +24,9 @@ if (builder.Environment.IsProduction() && string.Equals(gatewayKey, "moonstone-l
 var storage = string.Equals(builder.Configuration["PracticeStore:Provider"], "Memory", StringComparison.OrdinalIgnoreCase) ? "ephemeral-memory" : "mongodb";
 
 var app = builder.Build();
+app.UseRequestLogging("PracticeService");
+// 出站透传：GatewayClient/GatewayModelFacetAdjudicator 读 TraceFlow.Current
+RequestLogging.BeginAmbientTrace = PracticeService.Persistence.TraceFlow.Begin;
 app.UseExceptionHandler(handler => handler.Run(async context =>
 {
     var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error; var trace = context.TraceIdentifier;
@@ -34,6 +37,7 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
 }));
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok", service = "PracticeService" }));
 app.MapGet("/readyz", async (ISender sender, CancellationToken ct) => Results.Ok(await sender.Send(new GetReadinessQuery(storage), ct)));
+app.MapServiceMetrics();
 
 app.MapPost("/api/v1/practice-projects", async (CreateProjectRequest request, HttpContext c, ISender sender, CancellationToken ct) =>
 {

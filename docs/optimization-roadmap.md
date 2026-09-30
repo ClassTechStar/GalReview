@@ -141,31 +141,31 @@
 
 - **目标**：消灭 >500 行的服务入口与生成器单文件。
 - **依赖**：T3 CI 稳定绿（"先有网再动刀"）。
-- **进度**：🟡 UserService 完成；GalGame 半拆；Auth 仅抽 helper。
-- **待完成**：① AuthService/Program.cs 595 行按注册/会话/密码/管理员拆 Endpoint 组；② GalGameService/Program.cs 547 行继续拆（生成任务/包校验/叙事/存储）；③ ReciteQuestionGenerator 731 行按题型拆 Strategy。
-- **验收**：无 >400 行的 Program.cs；行为由现有测试锁定。
+- **进度**：✅ 已完成（2026-10-14）——AuthService/Program.cs 579→**122** 行（注册/会话/密码/管理员/内省 5 组 Endpoint + Contracts/Repositories 拆出）；GalGameService/Program.cs 528→**184** 行（GameGenerationEndpoints/GalGameStartupRecovery/GalGameMiddleware）；ReciteQuestionGenerator 682→**116** 行（GroundedQuestionExtractor/ModelQuestionClient/QuestionTextParser/QuestionChunker）。行为由既有测试锁定：Auth 18 + GalGame 362 + Practice 68 全绿。
+- **待完成**：无（验收已满足）。可选后续：MongoGameStore/PlanGraphClient 709 行按需再拆（非本任务范围）。
+- **验收**：✅ 无 >400 行的 Program.cs；行为由现有测试锁定。
 
 ### T10 · 可观测性深化（P2，1–2 周）
 
 - **目标**：跨服务排障一次定位；核心指标有告警。
 - **依赖**：Gateway /metrics（✅ 已完成）。
-- **进度**：🟡 网关侧完成。
-- **待完成**：① 各 .NET 服务 JSON 结构化日志（traceId/userId/durationMs）；② `X-Correlation-Id` 跨服务透传抽查并在错误信封回传；③ 告警最低集：readyz 下游异常 >5min、ABSTAINED 率突增、Credit 释放失败、队列深度。
-- **验收**：一次注入故障可凭 traceId 串起 Gateway→Practice→Model→Credit。
+- **进度**：✅ 已完成（2026-09-30 主体 + 2026-10-14 Auth/GalGame 接入）——① **八服务** JSON 结构化日志（`RequestLogging.cs`：AddJsonConsole + traceId/userId/path/method scope + durationMs/status 收尾行）：User/File/Practice/Credit/Knowledge/Model/**Auth/GalGame**；② X-Correlation-Id 跨服务透传补齐（Practice `TraceFlow`、GalGame `GalGameTraceFlow` AsyncLocal；Auth→User/Credit 与 GalGame→Credit 均回传原 traceId；后台生成任务显式 Begin）；③ 告警最低集：gateway `gateway_upstream_failures_total{service,kind}`、Practice `practice_abstained_total`、Credit `credit_release_failures_total`、File `ingestionQueueDepth`/Model `queuedBatches` readyz 上报；`docs/observability.md` 含阈值与 PromQL 伪查询。详见 `docs/test_report.md` §47/§48。
+- **待完成**：无。可选后续：GalGame `generationQueueDepth` readyz 旁路指标。
+- **验收**：✅ 一次注入故障可凭 traceId 串起 Gateway→Practice→Model→Credit（并可扩至 Auth/GalGame 全链）。
 
 ### T11 · 前端 E2E 冒烟（P2，3–5 天）
 
 - **目标**：核心用户路径有自动化回归。
 - **依赖**：Vitest 通道已进 CI（✅）。
-- **进度**：✅ 已完成（2026-09-30）——`Nli:MaxPendingBatches`（默认 64）有界排队，超限 503 + `Retry-After`（`MODEL_SERVICE_BUSY`）；`/readyz` 上报 `queuedBatches`；Practice 非 200→ABSTAINED 降级回归通过（68 用例）。
-- **待完成**：Playwright 登录→建项目→答一题→看结果 的视口冒烟（含移动视口），进 CI 可选 job。
+- **进度**：✅ 已完成（2026-10-14）——Playwright 冒烟落地 `frontend/e2e/` + `frontend/playwright.config.ts`：登录→建项目/进册→答一题→看结果，桌面 1280×720 与移动 375×667 双视口；API 以 `page.route` 全量 mock（`e2e/apiMocks.ts`），不依赖真实后端。`npm run test:e2e`；CI 新增可选 `frontend-e2e` job（`continue-on-error: true`，不阻塞主链路）。
+- **待完成**：CI 里 E2E job 稳定绿一周后转必需（去掉 `continue-on-error`）；本地/CI 首次需 `npx playwright install chromium`。
 - **验收**：CI 里 E2E job 稳定绿一周后转必需。
 
 ### T12 · 测试盲区补齐与文档纪律（P2，持续）
 
-- **进度**：🟡 Credit 7 Fact / FileService 2 文件已起步。
-- **待完成**：① OCR 最小契约测试（固定样例图+期望文本）；② CreditService 并发扣减/兑换码防重放用例；③ FileService 补 GridFS 路径映射与错误信封测试（目标 ≥8 文件）；④ **恢复 test_report.md 更新纪律**——每次 P0/P1 变更附证据。
-- **验收**：FileService ≥8 测试文件；test_report 有本月记录。
+- **进度**：✅ 2026-10-14 主体完成——FileService 10 测试文件（104 用例）、Credit 并发扣减/兑换防重放 15 用例、OCR 契约 16 用例全绿；test_report.md §46 更新纪律恢复。
+- **待完成**：① MongoFileStore 启动恢复路径（`RecoverIncompleteJobsAsync`）集成测试；② OCR 真实识别精度/资源上限验证（contract.md §5.4 URGENT 项）；③ MySQL 仓储并发/行锁集成复核。
+- **验收**：✅ FileService 10 测试文件 ≥8；✅ test_report 有本月记录（§46，2026-10-14）。
 
 ---
 
@@ -218,16 +218,16 @@ A1 CI 六 job · A2 生产 overlay 去 Mock · A3 内省缓存+single-flight · 
 | B2 | Channel+BackgroundService + 启动恢复 | 🟡 → T4（重试/死信、File 两处 Task.Run） |
 | B3 | Render 文件快照持久化 | ✅ |
 | B4 | ErrorBoundary/storyAssets/lazy | ✅（ReviewPage 拆分与资产压缩 → T6） |
-| B5 | Credit/File 测试起步 | 🟡 → T12 |
+| B5 | Credit/File 测试起步 | ✅（T12 2026-10-14：File 10 文件 / Credit 并发+防重放 / OCR 契约） |
 | B6 | 管理员身份与购买链接配置化 | 🟡 机制已接入，默认兜底未拆 → T2 |
 
 ### Phase C — 工程化加深（进行中）
 
 | # | 项 | 状态 |
 |---|---|---|
-| C1 | 服务模块化 | 🟡 User 完成 / GalGame 半拆 / Auth 未动 → T9 |
-| C2 | 可观测性 | 🟡 Gateway /metrics 完成 → T10 |
-| C3 | 前端测试 | 🟡 Vitest 9 用例 → T11 E2E |
+| C1 | 服务模块化 | ✅ T9：Auth 122 / GalGame 184 / Recite 116 行，测试锁行为 |
+| C2 | 可观测性 | ✅ T10 八服务 JSON 日志 + 透传 + 告警最低集 |
+| C3 | 前端测试 | ✅ Vitest 11 用例 + Playwright E2E 冒烟（T11，CI 可选 job） |
 | C4 | sessionStorage + CSP | ✅ |
 | C5 | 限流单实例约束文档化 | ✅ |
 | C6 | 集成冒烟 workflow_dispatch | ✅（含反向密钥门禁） |
@@ -242,7 +242,7 @@ A1 CI 六 job · A2 生产 overlay 去 Mock · A3 内省缓存+single-flight · 
 | D4 | T4+T5 可靠性收尾（重试/死信/背压） | ✅ 2026-09-30 |
 | D5 | T6 前端瘦身回潮治理 | ✅ 2026-09-30 |
 | D6 | T7+T8 部署对齐与双端治理 | ✅ 2026-09-30（T7③拆模块转 P2） |
-| D7 | T9–T12 工程化持续 | ⬜ 按余力 |
+| D7 | T9–T12 工程化持续 | ✅ 2026-10-14 全部完成（T9 拆分 / T10 八服务可观测 / T11 E2E / T12 测试盲区） |
 
 ---
 

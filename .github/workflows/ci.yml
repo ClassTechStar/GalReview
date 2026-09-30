@@ -9,6 +9,7 @@ name: CI
 #   - Gateway：build + test
 #   - RenderService：build + test
 #   - Frontend：typecheck + build
+#   - Frontend E2E（可选，Playwright 冒烟；稳定绿一周后转必需）
 # 触发：main 分支推送 + 指向 main 的 PR
 # 说明：ModelService Integration 测试依赖真实 ONNX 资产（~500MB，OSCA/下载器），
 #       CI 只跑不依赖资产的 Domain/Persistence 单元测试；资产门禁由部署脚本负责。
@@ -281,6 +282,49 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # T11 前端 E2E 冒烟（Playwright）。
+  # 稳定性策略：API 一律 page.route mock，不依赖真实后端，因此与 dotnet/gateway
+  # job 解耦、可并行。当前为可选 job（continue-on-error），不阻塞主链路；
+  # **CI 里 E2E job 稳定绿一周后转必需**（去掉 continue-on-error 并纳入必需检查）。
+  frontend-e2e:
+    name: Frontend E2E smoke (optional)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E smoke (desktop + mobile viewports)
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-e2e-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
 
   desktop:
     name: Desktop (Electron)

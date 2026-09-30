@@ -125,8 +125,8 @@ export function createApp(config: GatewayConfig): express.Express {
       middlewares.push(rateLimiters[route.rateLimitCategory]);
     }
 
-    // 代理
-    const proxy = createProxyForRoute(route, config);
+    // 代理（上游失败计入 metrics，供告警）
+    const proxy = createProxyForRoute(route, config, (service, kind) => metrics.onUpstreamFailure(service, kind));
     middlewares.push(proxy as unknown as express.RequestHandler);
 
     if (route.methods && route.methods.length > 0) {

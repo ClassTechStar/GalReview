@@ -18,6 +18,7 @@ using KnowledgeService.Persistence.Repositories;
 using Neo4j.Driver;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Logging.AddJsonStructuredLogging();
 
 var neo4jOptions = builder.Configuration
     .GetSection(Neo4jOptions.SectionName)
@@ -73,6 +74,7 @@ builder.Services.AddHostedService<GraphBuildRecoveryService>();
 
 var app = builder.Build();
 app.UseMiddleware<TraceContextMiddleware>();
+app.UseRequestLogging("KnowledgeService");
 app.UseMiddleware<ApiExceptionMiddleware>();
 app.UseMiddleware<GatewayTrustMiddleware>();
 

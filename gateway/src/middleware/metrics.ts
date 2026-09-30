@@ -8,6 +8,8 @@ import type { IntrospectionCache } from './introspectionCache.js';
 export interface MetricsRegistry {
   onRequest(method: string, path: string, status: number, durationMs: number): void;
   onIntrospection(result: 'hit' | 'miss' | 'inflight'): void;
+  /** 上游代理失败（连接/超时/契约错误）——告警信号 */
+  onUpstreamFailure(service: string, kind: string): void;
   render(): string;
 }
 
@@ -34,6 +36,8 @@ export function createMetricsRegistry(): MetricsRegistry {
   const started = Date.now();
   const requests = new Map<string, Bucket>();
   const introspection = { hit: 0, miss: 0, inflight: 0 };
+  // service|kind -> count；kind ∈ timeout/connection/contract/other
+  const upstreamFailures = new Map<string, number>();
 
   return {
     onRequest(method, path, status, durationMs) {
@@ -49,6 +53,10 @@ export function createMetricsRegistry(): MetricsRegistry {
     },
     onIntrospection(result) {
       introspection[result] += 1;
+    },
+    onUpstreamFailure(service, kind) {
+      const key = `${service}|${kind}`;
+      upstreamFailures.set(key, (upstreamFailures.get(key) ?? 0) + 1);
     },
     render() {
       const lines: string[] = [];
@@ -84,6 +92,13 @@ export function createMetricsRegistry(): MetricsRegistry {
       lines.push(`gateway_introspection_cache_events{result="hit"} ${introspection.hit}`);
       lines.push(`gateway_introspection_cache_events{result="miss"} ${introspection.miss}`);
       lines.push(`gateway_introspection_cache_events{result="inflight"} ${introspection.inflight}`);
+
+      lines.push('# HELP gateway_upstream_failures_total Upstream proxy failures by service and kind');
+      lines.push('# TYPE gateway_upstream_failures_total counter');
+      for (const [key, count] of upstreamFailures) {
+        const [service, kind] = key.split('|');
+        lines.push(`gateway_upstream_failures_total{service="${service}",kind="${kind}"} ${count}`);
+      }
 
       return lines.join('\n') + '\n';
     },

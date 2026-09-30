@@ -58,4 +58,16 @@ describe('metrics registry', () => {
     expect(text).toMatch(/result="miss"\} 1/);
     expect(text).toMatch(/result="hit"\} 1/);
   });
+
+  it('应统计上游代理失败（告警信号）', () => {
+    const registry = createMetricsRegistry();
+    registry.onUpstreamFailure('modelService', 'timeout');
+    registry.onUpstreamFailure('modelService', 'timeout');
+    registry.onUpstreamFailure('creditService', 'connection');
+
+    const text = registry.render();
+    expect(text).toContain('gateway_upstream_failures_total');
+    expect(text).toMatch(/service="modelService",kind="timeout"\} 2/);
+    expect(text).toMatch(/service="creditService",kind="connection"\} 1/);
+  });
 });

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Security.Cryptography;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Logging.AddJsonStructuredLogging();
 builder.Services.Configure<Microsoft.AspNetCore.Routing.RouteHandlerOptions>(
     options => options.ThrowOnBadRequest = true);
 var gatewayKey = builder.Configuration["Gateway:ServiceKey"] ?? throw new InvalidOperationException("Gateway:ServiceKey must be configured.");
@@ -31,11 +32,7 @@ builder.Services.AddSingleton<IFileStore>(serviceProvider => serviceProvider.Get
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddHostedService<IngestionWorker>();
 var app = builder.Build();
-app.Use(async (context, next) =>
-{
-    context.TraceIdentifier = context.Request.Headers["X-Correlation-Id"].FirstOrDefault() is { Length: > 0 } id ? id : Guid.NewGuid().ToString("N");
-    context.Response.Headers["X-Correlation-Id"] = context.TraceIdentifier; await next();
-});
+app.UseRequestLogging("FileService");
 app.UseExceptionHandler(error => error.Run(context =>
 {
     var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
@@ -49,8 +46,8 @@ app.UseExceptionHandler(error => error.Run(context =>
     return Failure(context, 500, "INTERNAL_ERROR", "File service is temporarily unavailable.").ExecuteAsync(context);
 }));
 app.MapGet("/healthz", (HttpContext c) => Results.Ok(ApiSuccess.Create(new { status = "live" }, c.TraceIdentifier)));
-app.MapGet("/readyz", (HttpContext c, MongoFileStore store) => store.IsReady()
-    ? Results.Ok(ApiSuccess.Create(new { status = "ready", storage = "mongodb-gridfs" }, c.TraceIdentifier))
+app.MapGet("/readyz", (HttpContext c, MongoFileStore store, IngestionQueue queue) => store.IsReady()
+    ? Results.Ok(ApiSuccess.Create(new { status = "ready", storage = "mongodb-gridfs", ingestionQueueDepth = queue.Reader.Count }, c.TraceIdentifier))
     : Failure(c, 503, "SERVICE_UNAVAILABLE", "MongoDB is unavailable."));
 
 app.MapPost("/api/v1/materials", async (HttpContext c, [FromForm] IFormFile? file, [FromForm] string? displayName, [FromForm] string? subjectCode, IFileStore store) =>

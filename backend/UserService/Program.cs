@@ -2,8 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole();
+builder.Logging.AddJsonStructuredLogging();
 builder.Services.Configure<Microsoft.AspNetCore.Routing.RouteHandlerOptions>(
     options => options.ThrowOnBadRequest = true);
 
@@ -32,15 +31,7 @@ else
 var app = builder.Build();
 if (!isMockMode) app.Services.GetRequiredService<UserDatabase>().EnsureCreated();
 
-app.Use(async (context, next) =>
-{
-    var correlationId = context.Request.Headers["X-Correlation-Id"].FirstOrDefault();
-    context.TraceIdentifier = string.IsNullOrWhiteSpace(correlationId)
-        ? Guid.NewGuid().ToString("N")
-        : correlationId;
-    context.Response.Headers["X-Correlation-Id"] = context.TraceIdentifier;
-    await next();
-});
+app.UseRequestLogging("UserService");
 
 app.UseExceptionHandler(error => error.Run(context =>
 {
