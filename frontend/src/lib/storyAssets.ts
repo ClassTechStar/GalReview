@@ -1,6 +1,6 @@
 /** 故事回响页面的静态资源常量与预加载。 */
 
-export const fixedMockSceneBackgrounds = ['/bg.png', '/bg_1.png', '/bg2.png', '/bg3.png', '/bg4.png']
+export const fixedMockSceneBackgrounds = ['/bg.webp', '/bg_1.webp', '/bg2.webp', '/bg3.webp', '/bg4.webp']
 
 export const BGM_VOLUME = 0.18
 export const BGM_DUCKED_VOLUME = 0.06

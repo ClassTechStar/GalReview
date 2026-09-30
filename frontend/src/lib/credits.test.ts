@@ -14,13 +14,27 @@ describe('resolvePurchaseUrl', () => {
   })
 
   it('拒绝非 https 的 API 地址', async () => {
+    vi.stubEnv('VITE_CREDIT_SHOP_URL', '')
     const { resolvePurchaseUrl } = await import('./credits')
-    const url = resolvePurchaseUrl({ purchaseUrl: 'http://evil.example' })
-    expect(url.startsWith('https://')).toBe(true)
+    expect(resolvePurchaseUrl({ purchaseUrl: 'http://evil.example' })).toBeNull()
   })
 
-  it('回退到默认购买地址', async () => {
+  it('无 API 地址且未配置环境变量时返回 null（购买入口应隐藏）', async () => {
+    vi.stubEnv('VITE_CREDIT_SHOP_URL', '')
     const { resolvePurchaseUrl } = await import('./credits')
-    expect(resolvePurchaseUrl({})).toBe('https://pay.ldxp.cn/shop/7CX09W5E')
+    expect(resolvePurchaseUrl({})).toBeNull()
+    expect(resolvePurchaseUrl()).toBeNull()
+  })
+
+  it('回退到 VITE_CREDIT_SHOP_URL 环境变量', async () => {
+    vi.stubEnv('VITE_CREDIT_SHOP_URL', 'https://shop.example/from-env')
+    const { resolvePurchaseUrl } = await import('./credits')
+    expect(resolvePurchaseUrl({})).toBe('https://shop.example/from-env')
+  })
+
+  it('API 地址优先于环境变量', async () => {
+    vi.stubEnv('VITE_CREDIT_SHOP_URL', 'https://shop.example/from-env')
+    const { resolvePurchaseUrl } = await import('./credits')
+    expect(resolvePurchaseUrl({ purchaseUrl: 'https://shop.example/a' })).toBe('https://shop.example/a')
   })
 })
