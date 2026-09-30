@@ -15,6 +15,9 @@ public interface IInferenceLoadStats
 {
     int InflightBatches { get; }
     long CompletedBatches { get; }
+
+    /// <summary>正在等待批次门（排队中）的批次数。</summary>
+    int QueuedBatches { get; }
 }
 
 public interface IModelAssetStatusReader

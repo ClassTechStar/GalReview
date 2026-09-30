@@ -22,5 +22,8 @@ public sealed class IngestionQueue
     public IAsyncEnumerable<string> ReadAllAsync(CancellationToken cancellationToken) =>
         _channel.Reader.ReadAllAsync(cancellationToken);
 
+    /// <summary>底层读取端：Worker 用它做 TryRead / WaitToReadAsync 的重试调度。</summary>
+    public System.Threading.Channels.ChannelReader<string> Reader => _channel.Reader;
+
     public void Complete() => _channel.Writer.TryComplete();
 }

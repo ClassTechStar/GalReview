@@ -23,8 +23,12 @@ public sealed class MultilingualNliInferenceEngine : IFacetInferenceEngine, IInf
     private readonly Lazy<ModelRuntime?> _runtime;
     /// <summary>同时进行的推理批次数上限，避免 ONNX CPU 被过多并发打满。</summary>
     private readonly SemaphoreSlim _batchGate;
+    /// <summary>等待批次门的批次数上限；超出立即 503 + Retry-After，防止无限排队。</summary>
+    private readonly int _maxPendingBatches;
+    private readonly int _retryAfterSeconds;
     private readonly int _facetParallelism;
     private int _inflight;
+    private int _pending;
     private long _completedBatches;
 
     public MultilingualNliInferenceEngine(
@@ -43,6 +47,10 @@ public sealed class MultilingualNliInferenceEngine : IFacetInferenceEngine, IInf
             configuration.GetValue("Nli:MaxConcurrentBatches", Math.Max(1, cores / 2)),
             1, cores);
         _batchGate = new SemaphoreSlim(maxBatches, maxBatches);
+        _maxPendingBatches = Math.Clamp(
+            configuration.GetValue("Nli:MaxPendingBatches", 64), 1, 4096);
+        _retryAfterSeconds = Math.Clamp(
+            configuration.GetValue("Nli:RetryAfterSeconds", 2), 1, 60);
         _facetParallelism = Math.Clamp(
             configuration.GetValue("Nli:FacetParallelism", Math.Min(4, cores)),
             1, 8);
@@ -51,6 +59,9 @@ public sealed class MultilingualNliInferenceEngine : IFacetInferenceEngine, IInf
 
     public int InflightBatches => Volatile.Read(ref _inflight);
     public long CompletedBatches => Interlocked.Read(ref _completedBatches);
+
+    /// <summary>已进入 InferAsync 但尚未获得批次门的批次数（排队深度）。</summary>
+    public int QueuedBatches => Math.Max(0, Volatile.Read(ref _pending) - Volatile.Read(ref _inflight));
 
     public async Task<FacetInferenceBatch> InferAsync(
         string answer,
@@ -61,6 +72,14 @@ public sealed class MultilingualNliInferenceEngine : IFacetInferenceEngine, IInf
         var runtime = _runtime.Value;
         if (runtime is null)
             return new FacetInferenceBatch(false, Version, [], "NLI_MODEL_UNAVAILABLE");
+
+        // 背压：排队深度超过上限时立即拒绝（503 + Retry-After），避免无限排队堆积
+        var pending = Interlocked.Increment(ref _pending);
+        if (pending > _maxPendingBatches)
+        {
+            Interlocked.Decrement(ref _pending);
+            throw new InferenceOverloadedException(_maxPendingBatches, _retryAfterSeconds);
+        }
 
         Interlocked.Increment(ref _inflight);
         try
@@ -92,6 +111,7 @@ public sealed class MultilingualNliInferenceEngine : IFacetInferenceEngine, IInf
         finally
         {
             Interlocked.Decrement(ref _inflight);
+            Interlocked.Decrement(ref _pending);
         }
     }
 

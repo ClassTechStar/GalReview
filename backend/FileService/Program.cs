@@ -31,20 +31,6 @@ builder.Services.AddSingleton<IFileStore>(serviceProvider => serviceProvider.Get
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddHostedService<IngestionWorker>();
 var app = builder.Build();
-app.Lifetime.ApplicationStarted.Register(() =>
-{
-    _ = Task.Run(async () =>
-    {
-        try
-        {
-            await app.Services.GetRequiredService<MongoFileStore>().RecoverIncompleteJobsAsync(CancellationToken.None);
-        }
-        catch (Exception exception)
-        {
-            app.Logger.LogError(exception, "Failed to recover incomplete ingestion jobs.");
-        }
-    });
-});
 app.Use(async (context, next) =>
 {
     context.TraceIdentifier = context.Request.Headers["X-Correlation-Id"].FirstOrDefault() is { Length: > 0 } id ? id : Guid.NewGuid().ToString("N");
@@ -105,7 +91,7 @@ app.MapGet("/api/v1/materials/{materialId}/extracted-text-preview", (string mate
     var document = store.GetExtractedText(materialId);
     return document is null ? Failure(c, 409, "MATERIAL_TEXT_NOT_READY", "Material text is not ready.") : Results.Ok(ApiSuccess.Create(document, c.TraceIdentifier));
 });
-app.MapDelete("/api/v1/materials/{materialId}", (string materialId, HttpContext c, IFileStore store) =>
+app.MapDelete("/api/v1/materials/{materialId}", async (string materialId, HttpContext c, IFileStore store) =>
 {
     var userId = GatewayUser(c, gatewayKey);
     if (userId is null) return Failure(c, 401, "AUTH_REQUIRED", "A gateway-authenticated user is required.");
@@ -116,17 +102,15 @@ var activeJob = store.GetLatestJob(materialId);
     if (activeJob?.EnableOcr == true && activeJob.Status is ("QUEUED" or "RUNNING"))
     {
         var ocrClient = c.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient("ocr");
-        _ = Task.Run(async () =>
+        try
         {
-            try
-            {
-                await ocrClient.PostAsync($"v1/ocr/jobs/{activeJob.JobId}/cancel", content: null, CancellationToken.None);
-            }
-            catch
-            {
-                // Deletion remains successful even if OCRService is already offline.
-            }
-        });
+            using var cancelTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await ocrClient.PostAsync($"v1/ocr/jobs/{activeJob.JobId}/cancel", content: null, cancelTimeout.Token);
+        }
+        catch
+        {
+            // Deletion remains successful even if OCRService is offline or slow.
+        }
     }
     if (store.TryDelete(materialId, userId, out _)) return Results.NoContent();
 

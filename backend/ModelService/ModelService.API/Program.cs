@@ -37,6 +37,15 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
             domain.Code, domain.Message, trace, domain.Details));
         return;
     }
+    if (exception is InferenceOverloadedException overloaded)
+    {
+        // 背压：队列满时明确拒绝并给出退避时间，Practice 侧已有超时/失败→ABSTAINED 降级路径
+        context.Response.StatusCode = 503;
+        context.Response.Headers.RetryAfter = overloaded.RetryAfterSeconds.ToString();
+        await context.Response.WriteAsJsonAsync(ApiFailure.Create(
+            "MODEL_SERVICE_BUSY", "模型推理队列已满，请稍后重试。", trace));
+        return;
+    }
     if (exception is BadHttpRequestException bad)
     {
         context.Response.StatusCode = 400;

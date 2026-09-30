@@ -177,11 +177,20 @@ if (useMongoStore)
     try
     {
         var store = app.Services.GetRequiredService<IGameStore>();
-        var recovered = store.RecoverStaleJobs();
-        if (recovered > 0)
+        var recovery = store.RecoverStaleJobs();
+        if (recovery.FailedCount > 0)
         {
             var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("GalGameService");
-            startupLogger.LogWarning("Startup recovery: {Count} stale job(s) marked as FAILED", recovered);
+            startupLogger.LogWarning("Startup recovery: {Count} stale job(s) marked as FAILED", recovery.FailedCount);
+            // 恢复置 FAILED 的作业仍持有 HELD 预授权；逐一释放，避免 credits 悬挂
+            foreach (var failedJobId in recovery.FailedJobIds)
+            {
+                try { await app.Services.GetRequiredService<IGameCreditBilling>().ReleaseAsync(failedJobId, CancellationToken.None); }
+                catch (Exception releaseError)
+                {
+                    startupLogger.LogError(releaseError, "Unable to release credits for recovered job {GenerationId}", failedJobId);
+                }
+            }
         }
     }
     catch (Exception ex)
@@ -392,17 +401,19 @@ app.MapPost("/api/v1/game-generations", async (GameGenerationRequest request, Ht
 
     // 入队到 GameGenerationQueue，由 GameGenerationWorker 随 Host 生命周期消费
     // 从根 Provider 取单例，避免请求结束销毁 scoped 服务
+    // 闭包提为方法级局部变量：入队失败时可在 catch 中按退避重试同一工作项
+    Func<CancellationToken, Task>? generationWork = null;
     try
     {
         var generationQueue = app.Services.GetRequiredService<GameGenerationQueue>();
-        generationQueue.Enqueue(async workToken =>
+        generationWork = async workToken =>
         {
         var reservationSettled = false;
         try
         {
             // 原子状态转换：QUEUED → RUNNING
             if (store.TryTransitionJob(job.GenerationId, JobStatus.QUEUED,
-                j => j with { Status = JobStatus.RUNNING, Progress = 5 }) is null)
+                j => j with { Status = JobStatus.RUNNING, Progress = 5, AttemptCount = j.AttemptCount + 1 }) is null)
             {
                 logger.LogWarning("Job {GenerationId} was not in QUEUED state, skipping generation", job.GenerationId);
                 return;
@@ -493,12 +504,35 @@ app.MapPost("/api/v1/game-generations", async (GameGenerationRequest request, Ht
             store.TryTransitionJob(job.GenerationId, JobStatus.RUNNING,
                 j => j with { Status = JobStatus.FAILED, Error = new ApiError("INTERNAL_ERROR", "生成任务处理失败，请稍后重试或联系支持团队", new Dictionary<string, string>()) });
         }
-        });
+        };
+        generationQueue.Enqueue(generationWork);
     }
     catch (Exception enqueueError)
     {
-        // 入队失败（如队列已关闭）时释放预授权，避免 HELD credits 悬挂
-        logger.LogError(enqueueError, "Unable to enqueue generation job {GenerationId}", job.GenerationId);
+        // 入队失败（如队列瞬时不可用）：预授权仍持有，短退避内联重试；全部失败才释放并置 FAILED
+        logger.LogError(enqueueError, "Unable to enqueue generation job {GenerationId}; retrying with backoff", job.GenerationId);
+        var enqueued = false;
+        for (var retryAttempt = 1; retryAttempt <= 3 && !enqueued && generationWork is not null; retryAttempt++)
+        {
+            if (retryAttempt > 1)
+            {
+                try { await Task.Delay(TimeSpan.FromSeconds(2 * (retryAttempt - 1)), c.RequestAborted); }
+                catch (OperationCanceledException) { break; }
+            }
+            try
+            {
+                app.Services.GetRequiredService<GameGenerationQueue>().Enqueue(generationWork!);
+                enqueued = true;
+            }
+            catch (Exception retryError)
+            {
+                logger.LogWarning(retryError, "Enqueue retry #{Attempt} failed for {GenerationId}", retryAttempt, job.GenerationId);
+            }
+        }
+        if (enqueued)
+            return Results.Accepted($"/api/v1/game-generations/{job.GenerationId}", ApiSuccess.Create(job, c.TraceIdentifier));
+
+        logger.LogError("Enqueue retries exhausted for generation job {GenerationId}", job.GenerationId);
         try { await billing.ReleaseAsync(job.GenerationId, CancellationToken.None); }
         catch (Exception releaseError) { logger.LogError(releaseError, "Unable to release credits after enqueue failure for {GenerationId}", job.GenerationId); }
         store.TryTransitionJob(job.GenerationId, JobStatus.QUEUED,

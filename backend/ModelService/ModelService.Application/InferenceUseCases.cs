@@ -25,7 +25,14 @@ public sealed record ModelReadiness(
     IReadOnlyList<ModelAssetState> Models,
     InferenceLoadSnapshot? Load = null);
 
-public sealed record InferenceLoadSnapshot(int InflightBatches, long CompletedBatches);
+public sealed record InferenceLoadSnapshot(int InflightBatches, long CompletedBatches, int QueuedBatches);
+
+/// <summary>推理队列已满：调用方应按 Retry-After 退避后重试。</summary>
+public sealed class InferenceOverloadedException(int queuedLimit, int retryAfterSeconds)
+    : Exception($"Inference queue is full; at most {queuedLimit} batches may be pending.")
+{
+    public int RetryAfterSeconds { get; } = retryAfterSeconds;
+}
 
 public sealed class GetModelReadinessHandler(
     IModelAssetStatusReader assets,
@@ -42,7 +49,7 @@ public sealed class GetModelReadinessHandler(
             .All(state => state.Status == "READY");
         InferenceLoadSnapshot? load = loadStats is null
             ? null
-            : new(loadStats.InflightBatches, loadStats.CompletedBatches);
+            : new(loadStats.InflightBatches, loadStats.CompletedBatches, loadStats.QueuedBatches);
         return Task.FromResult(new ModelReadiness(ready ? "ready" : "not-ready", states, load));
     }
 }
