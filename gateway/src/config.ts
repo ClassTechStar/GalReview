@@ -1,4 +1,4 @@
-﻿import 'dotenv/config';
+import 'dotenv/config';
 
 export interface ServiceTarget {
   name: string;
@@ -25,6 +25,13 @@ export interface GatewayConfig {
   /** /readyz 必须可达的核心服务 key；省略时兼容性地探测全部服务 */
   readinessServices?: string[];
   services: Record<string, ServiceTarget>;
+  introspectionCache: {
+    /** active=true 结果最大缓存时间，会被 token expiresAt 截短 */
+    positiveTtlMs: number;
+    /** active=false 负缓存时间 */
+    negativeTtlMs: number;
+    maxEntries: number;
+  };
   rateLimit: {
     anonymous: { windowMs: number; max: number };
     upload: { windowMs: number; max: number };
@@ -144,6 +151,12 @@ export function loadConfig(): GatewayConfig {
     uploadTimeoutMs: envInt('UPLOAD_TIMEOUT_MS', 120_000),
     readinessServices,
     services,
+    introspectionCache: {
+      // 默认 30s：登录后高频读接口不必每请求内省；吊销最多延迟一个 TTL。
+      positiveTtlMs: envInt('INTROSPECTION_CACHE_TTL_MS', 30_000),
+      negativeTtlMs: envInt('INTROSPECTION_NEGATIVE_TTL_MS', 5_000),
+      maxEntries: envInt('INTROSPECTION_CACHE_MAX', 10_000),
+    },
     rateLimit: {
       anonymous: {
         windowMs: envInt('RL_ANONYMOUS_WINDOW_MS', 60_000),
