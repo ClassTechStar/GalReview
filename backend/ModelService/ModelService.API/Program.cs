@@ -22,6 +22,8 @@ builder.Services.AddMediatR(configuration =>
 builder.Services.AddModelPersistence(builder.Configuration, builder.Environment.ContentRootPath);
 var gatewayKey = builder.Configuration["Gateway:ServiceKey"] ??
     throw new InvalidOperationException("Gateway:ServiceKey must be configured.");
+if (builder.Environment.IsProduction() && string.Equals(gatewayKey, "moonstone-local-gateway-key", StringComparison.Ordinal))
+    throw new InvalidOperationException("Gateway:ServiceKey must be changed from the development default in production.");
 
 var app = builder.Build();
 app.UseExceptionHandler(handler => handler.Run(async context =>

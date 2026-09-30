@@ -19,6 +19,8 @@ builder.Services.AddMediatR(config => config.RegisterServicesFromAssembly(typeof
 builder.Services.AddPracticePersistence(builder.Configuration, builder.Environment.ContentRootPath);
 builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 50L * 1024 * 1024);
 var gatewayKey = builder.Configuration["Gateway:ServiceKey"] ?? throw new InvalidOperationException("Gateway:ServiceKey must be configured.");
+if (builder.Environment.IsProduction() && string.Equals(gatewayKey, "moonstone-local-gateway-key", StringComparison.Ordinal))
+    throw new InvalidOperationException("Gateway:ServiceKey must be changed from the development default in production.");
 var storage = string.Equals(builder.Configuration["PracticeStore:Provider"], "Memory", StringComparison.OrdinalIgnoreCase) ? "ephemeral-memory" : "mongodb";
 
 var app = builder.Build();

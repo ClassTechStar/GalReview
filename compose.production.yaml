@@ -39,11 +39,13 @@ services:
       Gateway__ServiceKey: ${AUTH_SERVICE_KEY:?AUTH_SERVICE_KEY is required in production}
       Admin__Username: ${GALREVIEW_ADMIN_USERNAME:?GALREVIEW_ADMIN_USERNAME is required in production}
       Admin__PasswordHash: ${GALREVIEW_ADMIN_PASSWORD_HASH:?GALREVIEW_ADMIN_PASSWORD_HASH is required in production}
+      Admin__PrincipalId: ${GALREVIEW_ADMIN_PRINCIPAL_ID:?GALREVIEW_ADMIN_PRINCIPAL_ID is required in production}
       ConnectionStrings__AuthDatabase: "Server=auth-mysql;Port=3306;Database=galreview_auth;User ID=galreview_auth;Password=${AUTH_MYSQL_PASSWORD:?AUTH_MYSQL_PASSWORD is required in production};SslMode=Disabled;AllowPublicKeyRetrieval=True"
 
   credit-service:
     environment:
       Gateway__ServiceKey: ${CREDIT_SERVICE_KEY:?CREDIT_SERVICE_KEY is required in production}
+      Admin__PrincipalId: ${GALREVIEW_ADMIN_PRINCIPAL_ID:?GALREVIEW_ADMIN_PRINCIPAL_ID is required in production}
       ConnectionStrings__CreditDatabase: "Server=credit-mysql;Port=3306;Database=qzwl_credit;User ID=qzwl_credit;Password=${CREDIT_MYSQL_PASSWORD:?CREDIT_MYSQL_PASSWORD is required in production};SslMode=Disabled;AllowPublicKeyRetrieval=True"
 
   file-service:

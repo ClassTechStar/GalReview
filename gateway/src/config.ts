@@ -67,7 +67,13 @@ function envTrustProxy(key: string): boolean | number | string {
 }
 
 export function loadConfig(): GatewayConfig {
-  const gatewayKey = env('GATEWAY_KEY', 'moonstone-local-gateway-key');
+  // 生产环境必须显式配置 GATEWAY_KEY，禁止静默使用开发默认密钥。
+  const configuredGatewayKey = process.env.GATEWAY_KEY?.trim();
+  if (!configuredGatewayKey && process.env.NODE_ENV === 'production') {
+    throw new Error('GATEWAY_KEY must be configured when NODE_ENV=production.');
+  }
+  // 联调/测试兜底：仅非生产环境允许回退到已知开发密钥。
+  const gatewayKey = configuredGatewayKey || 'moonstone-local-gateway-key';
 
   /** 读取每服务独立密钥，回退到全局密钥 */
   const svcKey = (envName: string) => env(envName, gatewayKey);

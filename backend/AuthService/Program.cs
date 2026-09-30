@@ -17,6 +17,8 @@ var connectionString = builder.Configuration.GetConnectionString("AuthDatabase")
 if (!isMockMode && string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException("ConnectionStrings:AuthDatabase must be configured.");
 var gatewayKey = builder.Configuration["Gateway:ServiceKey"] ?? throw new InvalidOperationException("Gateway:ServiceKey must be configured.");
+if (builder.Environment.IsProduction() && string.Equals(gatewayKey, "moonstone-local-gateway-key", StringComparison.Ordinal))
+    throw new InvalidOperationException("Gateway:ServiceKey must be changed from the development default in production.");
 var gatewayBaseUrl = builder.Configuration["Gateway:BaseUrl"] ?? "http://localhost:5000";
 var gatewayUri = new Uri(gatewayBaseUrl, UriKind.Absolute);
 var adminUsername = builder.Configuration["Admin:Username"] ?? throw new InvalidOperationException("Admin:Username must be configured.");
@@ -24,7 +26,7 @@ var adminPasswordHash = builder.Configuration["Admin:PasswordHash"];
 var adminPasswordLegacy = builder.Configuration["Admin:Password"];
 if (string.IsNullOrWhiteSpace(adminPasswordHash) && string.IsNullOrWhiteSpace(adminPasswordLegacy))
     throw new InvalidOperationException("Admin:PasswordHash (preferred) or Admin:Password (legacy plaintext) must be configured.");
-AdminIdentity.Configure(builder.Configuration["Admin:PrincipalId"]);
+AdminIdentity.Configure(builder.Configuration["Admin:PrincipalId"], builder.Environment.IsProduction());
 var isDevelopment = builder.Environment.IsDevelopment();
 var storageName = isMockMode ? "memory" : "mysql";
 builder.Services.AddSingleton<PasswordResetEmailSender>();
@@ -121,7 +123,7 @@ app.Use(async (context, next) =>
 app.UseRateLimiter();
 
 app.MapGet("/healthz", (HttpContext c) => Results.Ok(ApiSuccess.Create(new { status = "live" }, c.TraceIdentifier)));
-app.MapGet("/readyz", (HttpContext c) => Results.Ok(ApiSuccess.Create(new { status = "ready", storage = storageName }, c.TraceIdentifier)));
+app.MapGet("/readyz", (HttpContext c) => Results.Ok(ApiSuccess.Create(new { status = "ready", storage = storageName, adminConfigured = AdminIdentity.IsExplicitlyConfigured }, c.TraceIdentifier)));
 
 app.MapPost("/api/v1/auth/registrations", async (RegistrationRequest request, HttpContext c, IAuthRepository repository, IPasswordHasher<Credential> hasher, IHttpClientFactory clients) =>
 {

@@ -29,6 +29,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 var gatewayKey = builder.Configuration["Gateway:ServiceKey"]
     ?? throw new InvalidOperationException("Gateway:ServiceKey must be configured.");
+if (builder.Environment.IsProduction() && string.Equals(gatewayKey, "moonstone-local-gateway-key", StringComparison.Ordinal))
+    throw new InvalidOperationException("Gateway:ServiceKey must be changed from the development default in production.");
 var isMockMode = string.Equals(
     builder.Configuration["MOONSTONE_MODE"] ?? Environment.GetEnvironmentVariable("MOONSTONE_MODE"),
     "Mock", StringComparison.OrdinalIgnoreCase);

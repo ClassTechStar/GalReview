@@ -147,6 +147,18 @@ describe('loadConfig', () => {
     );
   });
 
+  it('生产环境缺少 GATEWAY_KEY 时应启动失败', () => {
+    delete process.env.GATEWAY_KEY;
+    process.env.NODE_ENV = 'production';
+    expect(() => loadConfig()).toThrow(/GATEWAY_KEY must be configured/);
+  });
+
+  it('非生产环境缺少 GATEWAY_KEY 时回退到开发默认密钥', () => {
+    delete process.env.GATEWAY_KEY;
+    delete process.env.NODE_ENV;
+    expect(loadConfig().gatewayKey).toBe('moonstone-local-gateway-key');
+  });
+
   it('服务名应正确映射', () => {
     const cfg = loadConfig();
     expect(cfg.services.userService.name).toBe('UserService');
