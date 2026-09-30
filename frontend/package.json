@@ -9,6 +9,7 @@
     "build:wiki": "node scripts/build-wiki.mjs",
     "build:wiki:dev": "node scripts/build-wiki.mjs --output public/wiki",
     "typecheck": "tsc -b --pretty false",
+    "test": "vitest run",
     "preview": "vite preview"
   },
   "allowScripts": {
@@ -27,6 +28,7 @@
     "@vitejs/plugin-react": "^5.1.1",
     "marked": "17.0.5",
     "typescript": "~5.8.3",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "vitest": "^5.0.0"
   }
 }

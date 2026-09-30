@@ -1350,13 +1350,17 @@ input[type="password"]::-webkit-credentials-auto-fill-button { visibility: hidde
 .game-stage__end:disabled { opacity: .58; cursor: wait; }
 .game-stage__voice svg, .game-stage__fullscreen svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .game-stage:fullscreen { width: 100vw; max-width: none; min-height: 100vh; height: 100vh; border: 0; border-radius: 0; }
-.game-stage .dialogue-panel { position: absolute; bottom: 94px; left: clamp(24px, 5vw, 62px); width: fit-content; max-width: min(760px, 86%); margin: 0; border-color: rgb(255 205 151 / .38); border-radius: 16px; color: #fff8ed; background: linear-gradient(125deg, rgb(55 42 60 / .53), rgb(30 49 65 / .48)); box-shadow: 0 12px 30px rgb(35 21 25 / .22); backdrop-filter: blur(11px) saturate(116%); -webkit-backdrop-filter: blur(11px) saturate(116%); }
+.game-stage .dialogue-panel { position: absolute; bottom: 94px; left: clamp(24px, 5vw, 62px); width: fit-content; max-width: min(760px, 86%); max-height: min(52vh, 420px); display: flex; flex-direction: column; margin: 0; border-color: rgb(255 205 151 / .38); border-radius: 16px; color: #fff8ed; background: linear-gradient(125deg, rgb(55 42 60 / .53), rgb(30 49 65 / .48)); box-shadow: 0 12px 30px rgb(35 21 25 / .22); backdrop-filter: blur(11px) saturate(116%); -webkit-backdrop-filter: blur(11px) saturate(116%); }
 .game-stage .dialogue-panel--advance { cursor: pointer; }
 .game-stage .dialogue-panel--advance:hover { border-color: rgb(255 224 174 / .72); }
+.game-stage .dialogue-panel > h2 { flex: 0 0 auto; }
 .game-stage .dialogue-line strong { color: #ffd0a0; }
 .game-stage .dialogue-line strong { font-size: 17px; }
 .game-stage .dialogue-line p { max-width: 590px; font-size: clamp(17px, 1.35vw, 20px); line-height: 1.78; }
-.game-stage .dialogue-line__text { display: grid; min-width: 0; }
+.game-stage .dialogue-line__text { display: grid; min-width: 0; min-height: 0; max-height: min(36vh, 280px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgb(255 205 151 / .45) transparent; }
+.game-stage .dialogue-line__text::-webkit-scrollbar { width: 8px; }
+.game-stage .dialogue-line__text::-webkit-scrollbar-thumb { border-radius: 8px; background: rgb(255 205 151 / .4); }
+.game-stage .dialogue-line__text::-webkit-scrollbar-track { background: transparent; }
 .game-stage .dialogue-line__measure, .game-stage .dialogue-line__typed { grid-area: 1 / 1; }
 .game-stage .dialogue-line__measure { visibility: hidden; pointer-events: none; }
 .game-stage .dialogue-line__typed { margin: 0; overflow-wrap: anywhere; }

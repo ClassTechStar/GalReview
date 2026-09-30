@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 import AppShell, { PageHeader } from '../components/AppShell'
 import { api } from '../lib/api'
+import { resolvePurchaseUrl } from '../lib/credits'
 import { clearSession, readProfile, saveProfile } from '../lib/session'
 import { readReducedMotion, saveReducedMotion } from '../lib/theme'
 import { resetWorkflow } from '../lib/workflow'
@@ -70,7 +71,9 @@ export default function SettingsPage() {
   }
 
   function openPurchase() {
-    if (window.confirm('将前往购买页面。购买后请返回此处输入兑换码，是否继续？')) window.location.assign('https://pay.ldxp.cn/shop/7CX09W5E')
+    if (window.confirm('将前往购买页面。购买后请返回此处输入兑换码，是否继续？')) {
+      window.location.assign(resolvePurchaseUrl())
+    }
   }
 
   async function submitProfile(event: FormEvent) {

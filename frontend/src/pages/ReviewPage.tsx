@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import AppShell, { PageHeader } from '../components/AppShell'
 import LoadingIndicator from '../components/LoadingIndicator'
@@ -7,8 +7,18 @@ import { handleCreditsRequired } from '../lib/credits'
 import { pollUntil } from '../lib/poll'
 import { loadRuntime } from '../lib/runtime'
 import { readSession } from '../lib/session'
+import {
+  BGM_DUCKED_VOLUME,
+  BGM_VOLUME,
+  CHARACTER_VOICE_PLAYBACK_RATE,
+  CHARACTER_VOICE_VOLUME,
+  fixedMockSceneBackgrounds,
+  gameGenerationPollTimeoutMs,
+  preloadBackground,
+} from '../lib/storyAssets'
 import { createUuidV4 } from '../lib/uuid'
 import { clearCompletedReview, readWorkflow, updateWorkflow } from '../lib/workflow'
+import { errorMessage } from '../lib/errorMessage'
 import type {
   AnswerResult,
   Difficulty,
@@ -59,32 +69,6 @@ function generationError(error: { message: string } | null): Error {
 
 function attemptsFromAnswers(answers: AnswerResult[]): Record<string, number> {
   return Object.fromEntries(answers.map((answer) => [answer.questionId, answer.attemptNumber]))
-}
-
-const fixedMockSceneBackgrounds = ['/bg.png', '/bg_1.png', '/bg2.png', '/bg3.png', '/bg4.png']
-const BGM_VOLUME = 0.18
-const BGM_DUCKED_VOLUME = 0.06
-const CHARACTER_VOICE_VOLUME = 0.9
-const CHARACTER_VOICE_PLAYBACK_RATE = 1.3
-// 后端最多执行两次、每次 120 秒的叙事模型请求；为排队、校验与持久化预留充足余量。
-const gameGenerationPollTimeoutMs = 600_000
-
-function preloadBackground(source: string): Promise<void> {
-  return new Promise((resolve) => {
-    const image = new Image()
-    image.decoding = 'async'
-    const complete = () => {
-      if (typeof image.decode === 'function') {
-        void image.decode().catch(() => undefined).finally(resolve)
-      } else {
-        resolve()
-      }
-    }
-    image.addEventListener('load', complete, { once: true })
-    image.addEventListener('error', () => resolve(), { once: true })
-    image.src = source
-    if (image.complete) complete()
-  })
 }
 
 function runtimeEvent(events: Array<Record<string, unknown>>, type: string) {
@@ -146,6 +130,7 @@ export default function ReviewPage() {
   const resultKeyRef = useRef(initial.resultIdempotencyKey || createUuidV4())
   const startedAtRef = useRef(Date.now())
   const sceneStartedAtRef = useRef(Date.now())
+  const dialogueScrollRef = useRef<HTMLDivElement | null>(null)
   const [style, setStyle] = useState<GameStyle>(initial.gameStyle || 'CAMPUS')
   const [difficulty, setDifficulty] = useState<Difficulty>(initial.gameDifficulty || 'STANDARD')
   const [generation, setGeneration] = useState<GameGenerationJob | undefined>(initial.gameGeneration)
@@ -242,6 +227,16 @@ useEffect(() => {
     return () => window.clearInterval(timer)
   }, [dialogueCharacters])
 
+  // 长对白打字时保持可见底部；用户手动上滑后不强行抢回滚动
+  useEffect(() => {
+    const el = dialogueScrollRef.current
+    if (!el) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+    if (nearBottom || typedLength <= 1) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [typedLength, dialogueIndex, dialogueScrollRef])
+
   useEffect(() => {
     let active = true
     let objectUrl = ''
@@ -332,7 +327,7 @@ useEffect(() => {
       try {
         adapter.renderFrame(Math.min(100, Math.max(0, now - previous)))
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : '渲染运行时已停止。')
+        setError(errorMessage(reason, '渲染运行时已停止。'))
         return
       }
       previous = now
@@ -425,7 +420,7 @@ useEffect(() => {
       updateWorkflow({ gameGeneration: accepted, gameStyle: style, gameDifficulty: difficulty, gameManifest: undefined, gamePackage: undefined, reviewSession: undefined, answerResults: [], resultIdempotencyKey: undefined })
       await completeGeneration(accepted, workflow.plan)
     } catch (reason) {
-      if (!handleCreditsRequired(reason)) setError(reason instanceof Error ? reason.message : '游戏准备失败。')
+      if (!handleCreditsRequired(reason)) setError(errorMessage(reason, '游戏准备失败。'))
     } finally {
       setBusy(false)
     }
@@ -441,7 +436,7 @@ useEffect(() => {
       const current = await api.getGameGeneration(workflow.gameGeneration.generationId)
       await completeGeneration(current, workflow.plan)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '生成任务恢复失败。')
+      setError(errorMessage(reason, '生成任务恢复失败。'))
     } finally {
       setBusy(false)
     }
@@ -467,7 +462,7 @@ useEffect(() => {
       setSession(currentSession)
       setProgress('已恢复当前复习会话。')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '会话恢复失败。')
+      setError(errorMessage(reason, '会话恢复失败。'))
     } finally {
       setBusy(false)
     }
@@ -588,7 +583,7 @@ useEffect(() => {
         await finish(nextAnswers, savedSession)
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '选择保存失败。')
+      setError(errorMessage(reason, '选择保存失败。'))
     } finally {
       setBusy(false)
     }
@@ -674,7 +669,7 @@ useEffect(() => {
       clearCompletedReview()
       await loadReviewKnowledge(answers)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '结果提交失败。')
+      setError(errorMessage(reason, '结果提交失败。'))
     } finally {
       setBusy(false)
     }
@@ -692,7 +687,7 @@ useEffect(() => {
       const savedSession = await saveSceneProgress(scene.sceneId, visitedSceneIds)
       await finish(attempt.answers, savedSession)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '进度保存失败。')
+      setError(errorMessage(reason, '进度保存失败。'))
       setBusy(false)
     }
   }
@@ -735,7 +730,7 @@ useEffect(() => {
       updateWorkflow({ plan: nextPlan, gameStyle: style, gameDifficulty: difficulty })
       setProgress(`正在按最新掌握度重新检索 ${nextPlan.selectedChapterIds.length} 个章节…`)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '新一轮故事复习准备失败。'); setBusy(false); return
+      setError(errorMessage(reason, '新一轮故事复习准备失败。')); setBusy(false); return
     }
     setBusy(false)
     await generateAndStart()
@@ -846,18 +841,31 @@ useEffect(() => {
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4" /></svg>
             </button>
           </div>
-          <article className={`dialogue-panel${!choiceFeedback && (!dialogueCompleted || dialogueTyping) ? ' dialogue-panel--advance' : ''}${choiceFeedback ? ` dialogue-panel--feedback dialogue-panel--feedback-${choiceFeedback.correct ? 'correct' : 'incorrect'}` : ''}`} onClick={choiceFeedback ? undefined : advanceDialogue}>
+          <article
+            className={`dialogue-panel${!choiceFeedback && (!dialogueCompleted || dialogueTyping) ? ' dialogue-panel--advance' : ''}${choiceFeedback ? ` dialogue-panel--feedback dialogue-panel--feedback-${choiceFeedback.correct ? 'correct' : 'incorrect'}` : ''}`}
+            onClick={(event) => {
+              if (choiceFeedback) return
+              // 避免与滚动交互冲突：滚轮已 stopPropagation；点击仍推进剧情
+              advanceDialogue()
+            }}
+            onWheel={(event) => {
+              // 阻止滚轮冒泡到外层，方便在对白框内上下滚动长文
+              if ((event.target as HTMLElement).closest('.dialogue-line__text')) {
+                event.stopPropagation()
+              }
+            }}
+          >
             {scene.title ? <h2>{scene.title}</h2> : null}
             {choiceFeedback ? <div className="dialogue-line dialogue-line--feedback" role="status" aria-live="assertive">
               <strong>{choiceFeedback.correct ? '回答正确' : '回答错误'}</strong>
-              <div className="dialogue-line__text">
+              <div className="dialogue-line__text" ref={dialogueScrollRef}>
                 <p>{choiceFeedback.correct
                   ? `你选择的「${choiceFeedback.selectedText}」是正确答案。这道题检验的是“${choiceFeedback.knowledgeTitle}”的关键判断。`
                   : `你选择了「${choiceFeedback.selectedText}」。正确答案是「${choiceFeedback.correctText || '题目给出的正确选项'}」，请留意“${choiceFeedback.knowledgeTitle}”。`}</p>
               </div>
             </div> : currentDialogue ? <div className={`dialogue-line${currentDialogue.speakerId === '旁白' ? ' dialogue-line--narration' : ''}`}>
               {currentDialogue.speakerId !== '旁白' ? <strong>{currentDialogue.speakerId}</strong> : null}
-              <div className="dialogue-line__text">
+              <div className="dialogue-line__text" ref={dialogueScrollRef}>
                 <p className="dialogue-line__measure" aria-hidden="true">{currentDialogue.text}</p>
                 <p className="dialogue-line__typed">{typedDialogue}</p>
               </div>
