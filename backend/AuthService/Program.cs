@@ -1,4 +1,4 @@
-﻿using System.Net.Http.Json;
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.RateLimiting;
@@ -24,6 +24,7 @@ var adminPasswordHash = builder.Configuration["Admin:PasswordHash"];
 var adminPasswordLegacy = builder.Configuration["Admin:Password"];
 if (string.IsNullOrWhiteSpace(adminPasswordHash) && string.IsNullOrWhiteSpace(adminPasswordLegacy))
     throw new InvalidOperationException("Admin:PasswordHash (preferred) or Admin:Password (legacy plaintext) must be configured.");
+AdminIdentity.Configure(builder.Configuration["Admin:PrincipalId"]);
 var isDevelopment = builder.Environment.IsDevelopment();
 var storageName = isMockMode ? "memory" : "mysql";
 builder.Services.AddSingleton<PasswordResetEmailSender>();
@@ -326,94 +327,29 @@ app.MapPost("/internal/v1/auth/introspections", (TokenIntrospectionRequest reque
 });
 app.Run();
 
-static async Task<bool> CreateProfileAsync(HttpClient client, string key, string correlationId, string userId, string displayName, CancellationToken cancellation)
-{
-    using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/v1/users") { Content = JsonContent.Create(new { userId, displayName, locale = "zh-CN" }) };
-    request.Headers.Add("X-Service-Name", "AuthService"); request.Headers.Add("X-Service-Key", key); request.Headers.Add("X-Correlation-Id", correlationId);
-    try { using var response = await client.SendAsync(request, cancellation); return response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.Conflict; } catch (HttpRequestException) { return false; }
-}
-static async Task<bool> CreateCreditAccountAsync(HttpClient client, string key, string correlationId, string userId, CancellationToken cancellation)
-{
-    using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/v1/credits/accounts") { Content = JsonContent.Create(new { userId }) };
-    request.Headers.Add("X-Service-Name", "AuthService"); request.Headers.Add("X-Service-Key", key); request.Headers.Add("X-Correlation-Id", correlationId);
-    try { using var response = await client.SendAsync(request, cancellation); return response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.Conflict; }
-    catch (HttpRequestException) { return false; }
-}
-static async Task<bool> DeleteCreditAccountAsync(HttpClient client, string key, string correlationId, string userId, CancellationToken cancellation)
-{
-    using var request = new HttpRequestMessage(HttpMethod.Delete, $"/internal/v1/credits/accounts/{Uri.EscapeDataString(userId)}");
-    request.Headers.Add("X-Service-Name", "AuthService"); request.Headers.Add("X-Service-Key", key); request.Headers.Add("X-Correlation-Id", correlationId);
-    try { using var response = await client.SendAsync(request, cancellation); return response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NotFound; }
-    catch (HttpRequestException) { return false; }
-}
-static async Task<Dictionary<string, string>?> LookupProfileDisplayNamesAsync(HttpClient client, string key, string correlationId, string[] userIds, CancellationToken cancellation)
-{
-    if (userIds.Length == 0) return new Dictionary<string, string>(StringComparer.Ordinal);
-    using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/v1/users/profile-lookups") { Content = JsonContent.Create(new { userIds }) };
-    request.Headers.Add("X-Service-Name", "AuthService"); request.Headers.Add("X-Service-Key", key); request.Headers.Add("X-Correlation-Id", correlationId);
-    try
-    {
-        using var response = await client.SendAsync(request, cancellation);
-        if (!response.IsSuccessStatusCode) return null;
-        return await AdminProfileLookupContract.ReadAsync(
-            response.Content,
-            userIds,
-            cancellation);
-    }
-    catch (HttpRequestException) { return null; }
-}
-static async Task<Dictionary<string, decimal>?> LookupCreditBalancesAsync(HttpClient client, string key, string correlationId, string[] userIds, CancellationToken cancellation)
-{
-    if (userIds.Length == 0) return new Dictionary<string, decimal>(StringComparer.Ordinal);
-    using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/v1/credits/balance-lookups") { Content = JsonContent.Create(new { userIds }) };
-    request.Headers.Add("X-Service-Name", "AuthService"); request.Headers.Add("X-Service-Key", key); request.Headers.Add("X-Correlation-Id", correlationId);
-    try
-    {
-        using var response = await client.SendAsync(request, cancellation);
-        if (!response.IsSuccessStatusCode) return null;
-        return await AdminCreditBalanceLookupContract.ReadAsync(response.Content, userIds, cancellation);
-    }
-    catch (HttpRequestException) { return null; }
-}
-static async Task<bool> DeleteUserProfileAsync(HttpClient client, string key, string correlationId, string userId, CancellationToken cancellation)
-{
-    using var request = new HttpRequestMessage(HttpMethod.Delete, $"/internal/v1/users/{Uri.EscapeDataString(userId)}");
-    request.Headers.Add("X-Service-Name", "AuthService"); request.Headers.Add("X-Service-Key", key); request.Headers.Add("X-Correlation-Id", correlationId);
-    try
-    {
-        using var response = await client.SendAsync(request, cancellation);
-        return response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NotFound;
-    }
-    catch (HttpRequestException) { return false; }
-}
-static bool IsGateway(HttpContext c, string key)
-{
-    var values = c.Request.Headers["X-Gateway-Key"];
-    return values.Count == 1 && FixedTimeEquals(values[0]!, key);
-}
-static string? GetGatewayUser(HttpContext c, string key) => IsGateway(c, key) && !string.IsNullOrWhiteSpace(c.Request.Headers["X-User-Id"]) ? c.Request.Headers["X-User-Id"].ToString() : null;
-static bool ValidEmail(string? value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 320 && value.Contains('@');
-static bool ValidName(string? value) => !string.IsNullOrWhiteSpace(value) && value.Trim().Length is >= 1 and <= 64;
-static bool ValidPassword(string? value) => !string.IsNullOrWhiteSpace(value) && value.Length >= 8;
+// 委托到 AuthHttp / AuthGatewayClient，保持既有调用名不变
+static Task<bool> CreateProfileAsync(HttpClient client, string key, string correlationId, string userId, string displayName, CancellationToken cancellation)
+    => AuthGatewayClient.CreateProfileAsync(client, key, correlationId, userId, displayName, cancellation);
+static Task<bool> CreateCreditAccountAsync(HttpClient client, string key, string correlationId, string userId, CancellationToken cancellation)
+    => AuthGatewayClient.CreateCreditAccountAsync(client, key, correlationId, userId, cancellation);
+static Task<bool> DeleteCreditAccountAsync(HttpClient client, string key, string correlationId, string userId, CancellationToken cancellation)
+    => AuthGatewayClient.DeleteCreditAccountAsync(client, key, correlationId, userId, cancellation);
+static Task<Dictionary<string, string>?> LookupProfileDisplayNamesAsync(HttpClient client, string key, string correlationId, string[] userIds, CancellationToken cancellation)
+    => AuthGatewayClient.LookupProfileDisplayNamesAsync(client, key, correlationId, userIds, cancellation);
+static Task<Dictionary<string, decimal>?> LookupCreditBalancesAsync(HttpClient client, string key, string correlationId, string[] userIds, CancellationToken cancellation)
+    => AuthGatewayClient.LookupCreditBalancesAsync(client, key, correlationId, userIds, cancellation);
+static Task<bool> DeleteUserProfileAsync(HttpClient client, string key, string correlationId, string userId, CancellationToken cancellation)
+    => AuthGatewayClient.DeleteUserProfileAsync(client, key, correlationId, userId, cancellation);
+static bool IsGateway(HttpContext c, string key) => AuthHttp.IsGateway(c, key);
+static string? GetGatewayUser(HttpContext c, string key) => AuthHttp.GetGatewayUser(c, key);
+static bool ValidEmail(string? value) => AuthHttp.ValidEmail(value);
+static bool ValidName(string? value) => AuthHttp.ValidName(value);
+static bool ValidPassword(string? value) => AuthHttp.ValidPassword(value);
 static bool PasswordMatches(IPasswordHasher<Credential> hasher, Credential credential, string password)
-{
-    try { return hasher.VerifyHashedPassword(credential, credential.PasswordHash, password) is not PasswordVerificationResult.Failed; }
-    catch (FormatException) { return false; }
-    catch (ArgumentException) { return false; }
-}
-static IResult Failure(HttpContext c, int status, string code, string message) => Results.Json(ApiFailure.Create(code, message, c.TraceIdentifier), statusCode: status);
-static bool FixedTimeEquals(string left, string right)
-{
-    var leftBytes = System.Text.Encoding.UTF8.GetBytes(left);
-    var rightBytes = System.Text.Encoding.UTF8.GetBytes(right);
-    var length = Math.Max(leftBytes.Length, rightBytes.Length);
-    var paddedLeft = new byte[length];
-    var paddedRight = new byte[length];
-    leftBytes.CopyTo(paddedLeft, 0);
-    rightBytes.CopyTo(paddedRight, 0);
-    return CryptographicOperations.FixedTimeEquals(paddedLeft, paddedRight) && leftBytes.Length == rightBytes.Length;
-}
-static bool IsAdmin(HttpContext c, string key) => GetGatewayUser(c, key) == AdminIdentity.UserId;
+    => AuthHttp.PasswordMatches(hasher, credential, password);
+static IResult Failure(HttpContext c, int status, string code, string message) => AuthHttp.Failure(c, status, code, message);
+static bool FixedTimeEquals(string left, string right) => AuthHttp.FixedTimeEquals(left, right);
+static bool IsAdmin(HttpContext c, string key) => AuthHttp.IsAdmin(c, key);
 
 public sealed record RegistrationRequest(string Email, string Password, string DisplayName, string? DeviceName);
 public sealed record LoginRequest(string Email, string Password, string? DeviceName);

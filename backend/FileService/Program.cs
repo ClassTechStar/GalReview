@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Cryptography;
@@ -26,6 +26,8 @@ builder.Services.AddHttpClient("ocr", client =>
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseProxy = false });
 builder.Services.AddSingleton<MongoFileStore>();
 builder.Services.AddSingleton<IFileStore>(serviceProvider => serviceProvider.GetRequiredService<MongoFileStore>());
+builder.Services.AddSingleton<IngestionQueue>();
+builder.Services.AddHostedService<IngestionWorker>();
 var app = builder.Build();
 app.Lifetime.ApplicationStarted.Register(() =>
 {
@@ -143,7 +145,7 @@ app.MapPost("/api/v1/materials/{materialId}/ingestion-jobs", (string materialId,
     if (ocrMode is not ("quick" or "standard")) return Failure(c, 400, "VALIDATION_ERROR", "OCR mode must be quick or standard.");
     var job = store.CreateJob(materialId, string.IsNullOrWhiteSpace(request.ParserVersion) ? "files-text-v1" : request.ParserVersion, request.EnableOcr, ocrMode);
     if (job is null) return Failure(c, 409, "STATE_CONFLICT", "The material state changed before the ingestion job was created.");
-    _ = Task.Run(() => store.ProcessJobAsync(job.JobId, CancellationToken.None));
+    c.RequestServices.GetRequiredService<IngestionQueue>().Enqueue(job.JobId);
     return Results.Accepted($"/api/v1/ingestion-jobs/{job.JobId}", ApiSuccess.Create(job, c.TraceIdentifier));
 });
 app.MapGet("/api/v1/ingestion-jobs/{jobId}", async (string jobId, HttpContext c, IFileStore store, IHttpClientFactory httpClientFactory) =>
