@@ -1,24 +1,62 @@
 name: CI
 
-# 千知万理 GalReview — 最小可用 CI
-# 覆盖：.NET 服务（Auth/User/File/GalGame/Knowledge）构建与测试、gateway 构建与测试
+# 千知万理 GalReview — 核心闭环 CI
+# 覆盖：
+#   - 端口策略门禁
+#   - .NET：Auth/User/File/GalGame/Knowledge 构建或测试 + Practice/Credit 测试 + Model 单元测试
+#   - Gateway：build + test
+#   - RenderService：build + test
+#   - Frontend：typecheck + build
 # 触发：main 分支推送 + 指向 main 的 PR
+# 说明：ModelService Integration 测试依赖真实 ONNX 资产（~500MB，OSCA/下载器），
+#       CI 只跑不依赖资产的 Domain/Persistence 单元测试；资产门禁由部署脚本负责。
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      integration_smoke:
+        description: 'Run compose integration smoke (config + required env gate)'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
-# 同一分支新运行自动取消旧运行，省额度
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  integration-smoke:
+    name: Compose integration smoke
+    if: github.event_name == 'workflow_dispatch' && inputs.integration_smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate compose config
+        run: docker compose -f compose.integration.yaml config --quiet
+
+      - name: Validate production overlay requires secrets
+        shell: pwsh
+        run: |
+          # 故意不提供 .env：production overlay 必须在解析期失败
+          docker compose -f compose.integration.yaml -f compose.production.yaml config --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Error 'compose.production.yaml parsed without required secrets; gate is broken'
+            exit 1
+          }
+          Write-Host 'production overlay correctly rejected missing secrets'
+
+      - name: Port policy
+        shell: pwsh
+        run: ./scripts/Test-PortPolicy.ps1
+
   published-port-policy:
     name: Published host port policy
     runs-on: ubuntu-latest
@@ -30,26 +68,49 @@ jobs:
         shell: pwsh
         run: ./scripts/Test-PortPolicy.ps1
 
-  dotnet:
-    name: .NET services
+  dotnet-core:
+    name: .NET core loop (Practice/Credit/Model)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 项目混合 net8.0（Auth/User/File）与 net10.0（GalGame/Knowledge）
-      - name: Setup .NET SDKs
+      - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            8.0.x
-            10.0.x
+          dotnet-version: 10.0.x
 
-      # FileService 无测试项目，单独构建以验证可编译
-      - name: Build FileService (no tests)
+      - name: Test PracticeService
+        run: dotnet test backend/PracticeService/PracticeService.Tests/PracticeService.Tests.csproj --nologo
+
+      - name: Test CreditService
+        run: dotnet test backend/CreditService/CreditService.Tests/CreditService.Tests.csproj --nologo
+
+      # Integration 需要 backend/ModelService/Resources 真实 NLI 资产，CI 不下载
+      - name: Test ModelService (unit only)
+        run: >
+          dotnet test backend/ModelService/ModelService.Tests/ModelService.Tests.csproj
+          --nologo
+          --filter "FullyQualifiedName!~Integration"
+
+  dotnet-platform:
+    name: .NET platform services
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build FileService
         run: dotnet build backend/FileService/GalGame.FileService.csproj --nologo
 
-      # 四个测试项目各自 restore+build+test
+      - name: Test FileService
+        run: dotnet test backend/FileService/Tests/GalGame.FileService.Tests.csproj --nologo
+
       - name: Test AuthService
         run: dotnet test backend/AuthService/Tests/GalGame.AuthService.Tests.csproj --nologo
 
@@ -82,9 +143,63 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # tsc 类型检查 + 产物构建
       - name: Build
         run: npm run build
 
       - name: Test
         run: npm test
+
+  render-service:
+    name: RenderService (Node)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/RenderService/service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/RenderService/service/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+  frontend:
+    name: Frontend (Vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
