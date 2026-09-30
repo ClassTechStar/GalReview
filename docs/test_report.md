@@ -1828,3 +1828,52 @@ Wiki 样式使用灰白纸面、固定目录、直角搜索框、表格和正文
 15 个同名 HTML、`/wiki/` 索引及 `wiki/res` 的 16 个资源逐一请求均为 HTTP 200；主页 bundle 中确认
 存在 3 个 `/wiki/` 入口。Frontend 容器使用新镜像重建，当前 16 个默认容器均为 healthy 并保持运行。
 Wiki 是 Frontend 的公开静态内容，不依赖用户会话；本轮没有调用 OCR，也没有关闭 Docker。
+
+## 43. 2026-09-30 P0 安全收尾验证（T2/T3）
+
+本节记录深度优化路线图 P0 项（T2 默认兜底清除 / T3 CI 补强）的实施证据。
+
+### 变更范围
+
+- Gateway：`GATEWAY_KEY` 在 `NODE_ENV=production` 下缺失即启动失败；非生产环境保留联调兜底。
+- 全部 8 个 .NET 服务：`Gateway:ServiceKey` 在生产环境禁止使用开发默认值 `moonstone-local-gateway-key`（启动即抛）。
+- Auth/Credit：管理员身份 `Admin:PrincipalId` 生产缺失即 fail-fast；`/readyz` 新增 `adminConfigured` 上报。
+- compose.production.yaml：auth/credit 强制注入 `Admin__PrincipalId`（`${VAR:?}`）；Test-ProductionEnv.ps1 必填清单同步。
+- compose.integration.yaml：显式定位为联调栈（ASPNETCORE_ENVIRONMENT=Development + Mock 默认），文件头声明禁止直接用于生产。
+- start_dev.ps1：本地栈固定 Development / development 环境。
+- CI：新增 gitleaks secret 扫描（全历史、版本钉 8.30.1、配 `.gitleaksignore` 分诊）与 dorny/paths-filter 路径过滤。
+
+### 测试证据（本机）
+
+| 套件 | 结果 |
+|---|---|
+| Gateway (vitest) | 218/218 通过（含 2 条新增生产守卫用例） |
+| CreditService | 7/7 |
+| PracticeService | 68/68 |
+| ModelService（单元，排除 Integration） | 4/4 |
+| AuthService | 18/18 |
+| UserService | 32/32 |
+| FileService | 18/18 |
+| GalGameService | 362/362 |
+| KnowledgeService | 115/115 |
+
+compose 反向门禁复验：integration 单独解析通过；叠加 production overlay 且缺密钥时解析失败（预期，exit 1）。
+
+注：本机 `dotnet test` 在 Git Bash 直调时静默无输出（.NET 10 SDK + bash 管道），经 `cmd //c`
+包装后输出正常；本表全部结果来自 cmd 包装运行。CI（ubuntu）不受影响。
+
+### gitleaks 分诊
+
+全历史 132 commits 扫描命中 19 条，逐条分诊后指纹写入 `.gitleaksignore`：
+
+- 误报：验证码字符表、UUID 测试夹具、资产 SHA256 校验哈希、文档 curl 示例、
+  ASP.NET Identity 开发哈希（仅 Development 配置）。
+- 历史残留：GalGameService/appsettings.json 曾提交的 2 个 `sk-` API key 与已删除脚本中的令牌——
+  **当前工作树已清除，但仍存在于两个远端的 git 历史中，建议轮换对应 API key**。
+
+CI 后续仅拦截新增指纹。
+
+### 遗留
+
+- OCRService 仍 0 测试（P2/T12）。
+- ModelService Integration 测试维持排除（评审决策，见 ci.yml 头注）。

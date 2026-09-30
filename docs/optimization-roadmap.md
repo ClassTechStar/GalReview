@@ -5,6 +5,7 @@
 > 审计范围：frontend / gateway / backend 全部 10 服务 / compose×3 / CI / 部署脚本 / desktop / mobile
 > 优先级：P0 阻断生产安全或核心闭环 · P1 明显性能/可靠性瓶颈 · P2 可维护性与长期演进
 > 状态标记：✅ 已完成 · 🟡 部分完成 · ⬜ 未开始
+> 更新：2026-09-30 当日 P0（T0/T1/T2/T3）已全部实施并验证，证据见 `docs/test_report.md` §43。
 
 ---
 
@@ -68,7 +69,7 @@
 
 - **目标**：把工作区 18 天的未提交工作（46 个修改文件 +1293/−704，约 40 个新源文件）安全落库。
 - **依赖**：无（但 T1 应在同一批或紧随其后，避免把构建产物/证书带进首次提交）。
-- **进度**：⬜ 未开始。Gateway/前端测试已本机跑绿；.NET 测试本机 NuGet 异常，需 CI 验证。
+- **进度**：✅ 已完成（2026-09-30，8 个提交已推送 ClassTechStar；后续 T2/T3 变更另行提交）。
 - **待完成**：① 先做 T1（补 .gitignore）；② 按域分批提交：gateway 缓存+指标 → compose 三件套+CI → backend 队列/拆分 → 前端 lazy/测试 → desktop/mobile 壳；③ push 后确认 CI 全绿，把 .NET 结果记入 `test_report.md`。
 - **验收**：`git status` 干净（除构建产物）；CI 六 job 全绿；test_report 有 2026-09 记录。
 
@@ -76,7 +77,7 @@
 
 - **目标**：证书、构建产物、临时文件绝不进入 git 历史。
 - **依赖**：无；**必须先于 T0 的 desktop/mobile 提交**。
-- **进度**：⬜ 未开始（`.pfx` 已被 `*.pfx` 规则覆盖，未跟踪 ✅）。
+- **进度**：✅ 已完成——ignore 规则全覆盖（.cer/pfx/keystore/dist/tmp）；tmp 已跟踪文件已 `git rm --cached`；gitleaks 分诊归入 T3。
 - **待完成**：`.gitignore` 追加 `desktop/build/*.cer`、`desktop/dist-installer/`、`desktop/node_modules/`、`mobile/android/.gradle/`、`mobile/android/app/build/`、`mobile/node_modules/`、`dist/`、`tmp/`；对已跟踪的 tmp 文件执行 `git rm -r --cached tmp`；CI 加 gitleaks（归入 T3）。
 - **验收**：`git check-ignore desktop/build/galreview-codesign.cer` 命中；`git status --porcelain` 无产物条目；`git log` 无证书历史。
 
@@ -84,7 +85,7 @@
 
 - **目标**：生产配置缺失时 fail-fast，联调默认值只存在于 dev 路径。
 - **依赖**：无（与 compose.production.yaml 已有 `${VAR:?}` 叠加）。
-- **进度**：🟡 部分完成——生产 overlay 已强制 5 项密钥；`Admin:PrincipalId` 配置化机制已接入 Auth/Credit。
+- **进度**：✅ 已完成（2026-09-30）——gateway `GATEWAY_KEY` 生产缺失即退出；8 个 .NET 服务禁止生产使用开发默认服务 key；Auth/Credit `Admin:PrincipalId` 生产 fail-fast + `/readyz` 上报 `adminConfigured`；production overlay 强制 `Admin__PrincipalId`；integration compose 显式降为 Development 联调栈；start_dev 固定 Development。
 - **待完成**：① `gateway/src/config.ts:70` 移除默认 gateway key，缺配置启动即 exit 1（或仅 `NODE_ENV=development` 放行）；② `AdminIdentity.cs` 与 `CreditService.API/Program.cs:11` 的默认 GUID 改为 dev-only 兜底，生产缺配置不启动；③ `compose.integration.yaml` 的 Mock 默认限定在 integration 场景并在文件头注释声明"禁止直接用于生产"；④ 各服务 appsettings 内联服务 key 迁到环境变量（保留 dev 值但标记）。
 - **验收**：空 `.env` 启动生产组合直接失败；仓库 grep 默认密钥仅存在于 dev 配置文件；`/readyz` 报告 Admin 是否已显式配置。
 
@@ -92,7 +93,7 @@
 
 - **目标**：密钥泄漏与无关改动的 CI 成本都可控。
 - **依赖**：T1（gitleaks 需 ignore 先到位）。
-- **进度**：🟡 六 job 已覆盖全部可测服务与前端。
+- **进度**：✅ 已完成（2026-09-30）——gitleaks job（全历史、钉版 8.30.1）+ `.gitleaksignore` 分诊 19 条历史指纹；dorny/paths-filter 路径过滤接入 5 个服务 job；Model Integration 排除经评审维持并记录于 ci.yml 头注。
 - **待完成**：① 加 gitleaks job；② 核心服务 job 加 `paths` 过滤；③ 复审 Model Integration 排除策略（真实 ONNX 资产 hash 门禁后择机启用）。
 - **验收**：含假密钥的 PR 被 gitleaks 拦截；仅改文档的 PR 不跑 dotnet job。
 
@@ -235,12 +236,13 @@ A1 CI 六 job · A2 生产 overlay 去 Mock · A3 内省缓存+single-flight · 
 
 | # | 项 | 状态 |
 |---|---|---|
-| D1 | T0 在途成果入库 | ⬜ 本周 |
-| D2 | T1 仓库卫生 | ⬜ 本周（最高优先） |
-| D3 | T4+T5 可靠性收尾 | ⬜ 两周内 |
-| D4 | T6 前端瘦身回潮治理 | ⬜ 两周内 |
-| D5 | T7+T8 部署对齐与双端治理 | ⬜ 一个月内 |
-| D6 | T9–T12 工程化持续 | ⬜ 按余力 |
+| D1 | T0 在途成果入库 | ✅ 8 提交已推送 ClassTechStar |
+| D2 | T1 仓库卫生 | ✅ ignore 全覆盖 + tmp 出库 |
+| D3 | T2+T3 默认兜底清除与 CI 补强 | ✅ 已实施，证据 test_report §43 |
+| D4 | T4+T5 可靠性收尾（重试/死信/背压） | ⬜ 两周内 |
+| D5 | T6 前端瘦身回潮治理 | ⬜ 两周内 |
+| D6 | T7+T8 部署对齐与双端治理 | ⬜ 一个月内 |
+| D7 | T9–T12 工程化持续 | ⬜ 按余力 |
 
 ---
 
@@ -259,9 +261,9 @@ A1 CI 六 job · A2 生产 overlay 去 Mock · A3 内省缓存+single-flight · 
 
 | 指标 | 当前基线（2026-09-30） | 目标 |
 |---|---|---|
-| 工作区未提交变更 | 46 修改 + ~40 新文件 | 0（全部入库） |
-| git 历史中的证书/产物 | 0（.cer 暴露面未封） | 0 且 ignore 全覆盖 |
-| 代码内默认密钥/GUID 兜底 | gateway 1 处 + 服务 key 7+ 处 + GUID 2 处 | 生产路径 0 |
+| 工作区未提交变更 | 0（T0 已入库） | 0 |
+| git 历史中的证书/产物 | 0；ignore 全覆盖 + gitleaks 全历史扫描 | 0 且 ignore 全覆盖 |
+| 代码内默认密钥/GUID 兜底 | 生产路径 0（服务守卫 + overlay `:?` + Test-ProductionEnv） | 生产路径 0 |
 | 后台任务重试/死信 | 无 | 全队列覆盖 |
 | 首屏 JS gzip | 未测（G6 仍在主包） | < 300KB |
 | >500 行前端文件 | 5 个（ReviewPage 884） | 0 |
